@@ -1,0 +1,27 @@
+name: Daily Flight ELT
+on:
+  schedule:
+    - cron: '0 8 * * *' # Runs at 8am UTC every day
+  workflow_dispatch: # Allows you to click a button to run it manually
+
+jobs:
+  run_pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install amadeus psycopg2-binary
+
+      - name: Run ETL Script
+        env:
+          AMADEUS_KEY: ${{ secrets.AMADEUS_KEY }}
+          AMADEUS_SECRET: ${{ secrets.AMADEUS_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python etl_job.py
