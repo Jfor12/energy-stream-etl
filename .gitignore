@@ -98,3 +98,4 @@ docker-compose.override.yml
 venv/
 ENV/
 env/.venv/
+.venv/
