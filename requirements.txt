@@ -1,3 +1,5 @@
 amadeus
-psycopg2-binary
+psycopg[binary]
 requests
+python-dotenv
+streamlit
