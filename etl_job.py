@@ -2,9 +2,9 @@ import os
 import json
 import psycopg
 from amadeus import Client, ResponseError
-from dotenv import load_dotenv
+# REMOVED: from dotenv import load_dotenv  <-- This was causing the crash
 
-# 1. Load the secrets
+# 1. Load the secrets (Safe method)
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -24,9 +24,8 @@ def run_pipeline():
     with psycopg.connect(DB_URL, sslmode='require') as conn:
         with conn.cursor() as cursor:
             
-            # 1. FETCH ROUTES FROM DATABASE (The Wishlist)
+            # 1. FETCH ROUTES FROM DATABASE
             print("Fetching wishlist from database...")
-            # We explicitly check for return_date too
             cursor.execute("SELECT origin_code, dest_code, flight_date, return_date FROM tracked_routes")
             db_routes = cursor.fetchall()
             
@@ -36,10 +35,7 @@ def run_pipeline():
 
             # 2. PROCESS EACH ROUTE
             for r in db_routes:
-                # Unpack the database row
                 origin, dest, date_obj, return_date_obj = r
-                
-                # Convert Database Date Objects -> Strings for the API
                 date_str = str(date_obj)
                 
                 try:
@@ -54,7 +50,6 @@ def run_pipeline():
                         "max": 5
                     }
 
-                    # Add return date if it exists in the DB
                     if return_date_obj:
                         api_params["returnDate"] = str(return_date_obj)
 
@@ -69,12 +64,18 @@ def run_pipeline():
                         VALUES (%s, %s, %s, %s)
                     """
                     cursor.execute(query, (origin, dest, date_str, data_json))
+                    
+                    # IMPORTANT: You must commit the data!
+                    conn.commit()
+                    
                     print(f"Success! Saved data for {origin}->{dest}.")
 
                 except ResponseError as error:
                     print(f"API Error for {origin}->{dest}: {error}")
                 except Exception as e:
                     print(f"Database Error: {e}")
+                    # Optional: Rollback if one insert fails so it doesn't break the connection
+                    conn.rollback() 
 
 if __name__ == "__main__":
     run_pipeline()
