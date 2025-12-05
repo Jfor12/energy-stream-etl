@@ -5,7 +5,11 @@ from amadeus import Client, ResponseError
 from dotenv import load_dotenv
 
 # 1. Load the secrets
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # 2. Initialize Client
 amadeus = Client(
