@@ -42,9 +42,6 @@ with st.form("add_route_form", clear_on_submit=True):
         dest = st.text_input("To (e.g. JFK)", value="JFK").upper()
         date_ret = st.date_input("Return (Optional)", value=None)
     
-    # NEW: Checkbox for Direct Flights
-    is_direct = st.checkbox("Direct Flights Only ⚡")
-
     submitted = st.form_submit_button("Start Tracking 🚀")
 
     if submitted:
@@ -54,11 +51,11 @@ with st.form("add_route_form", clear_on_submit=True):
             try:
                 with get_connection() as conn:
                     with conn.cursor() as cur:
-                        # Updated Query to include is_direct
+                        # Reverted to simple insert
                         cur.execute("""
-                            INSERT INTO tracked_routes (origin_code, dest_code, flight_date, return_date, is_direct)
-                            VALUES (%s, %s, %s, %s, %s)
-                        """, (origin, dest, date_out, date_ret, is_direct))
+                            INSERT INTO tracked_routes (origin_code, dest_code, flight_date, return_date)
+                            VALUES (%s, %s, %s, %s)
+                        """, (origin, dest, date_out, date_ret))
                         conn.commit()
                 st.success(f"Added {origin}->{dest}")
                 st.rerun()
@@ -72,9 +69,9 @@ st.subheader("Your Wishlist")
 try:
     with get_connection() as conn:
         with conn.cursor() as cur:
-            # Updated Select to fetch is_direct
+            # Reverted select (Removed is_direct)
             cur.execute("""
-                SELECT id, origin_code, dest_code, flight_date, return_date, is_direct 
+                SELECT id, origin_code, dest_code, flight_date, return_date 
                 FROM tracked_routes 
                 ORDER BY flight_date ASC
             """)
@@ -91,15 +88,12 @@ try:
                 c4.markdown("**Action**")
                 
                 for row in rows:
-                    r_id, r_orig, r_dest, r_out, r_ret, r_direct = row
+                    r_id, r_orig, r_dest, r_out, r_ret = row
                     
                     c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
                     
-                    # 1. Route (Add Bolt icon if direct)
-                    route_display = f"**{r_orig} ➝ {r_dest}**"
-                    if r_direct:
-                        route_display += " ⚡"
-                    c1.write(route_display)
+                    # 1. Route
+                    c1.write(f"**{r_orig} ➝ {r_dest}**")
                     
                     # 2. Dates
                     if r_ret:
@@ -114,7 +108,6 @@ try:
                         ret_str = str(r_ret).replace("-", "")[2:]
                         url += f"/{ret_str}"
                     
-                    # Add preference to link (SkyScanner uses 'prefer direct' logic differently, but link is safe)
                     c3.link_button("🔗", url)
 
                     # 4. Delete
