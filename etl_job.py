@@ -29,7 +29,6 @@ def run_pipeline():
         with conn.cursor() as cursor:
             
             print("Fetching wishlist...")
-            # UPDATED SELECT: fetching is_direct
             cursor.execute("SELECT origin_code, dest_code, flight_date, return_date, is_direct FROM tracked_routes")
             db_routes = cursor.fetchall()
             
@@ -38,32 +37,34 @@ def run_pipeline():
                 return
 
             for r in db_routes:
-                # UPDATED UNPACKING: 5 variables now
                 origin, dest, date_obj, return_date_obj, is_direct_pref = r
                 date_str = str(date_obj)
                 
-                # Check for duplicates (Idempotency)
+                # --- FIX: UPDATED DUPLICATE CHECK ---
+                # We now check 'is_direct_search' as well!
                 check_query = """
                     SELECT COUNT(*) FROM raw_flights 
                     WHERE origin_code = %s 
                     AND dest_code = %s 
                     AND flight_date = %s 
+                    AND is_direct_search = %s  -- <--- NEW CHECK
                     AND DATE(ingested_at) = CURRENT_DATE
                 """
-                cursor.execute(check_query, (origin, dest, date_str))
+                # Note: I'm using 'ingested_at' as per your database column name
+                cursor.execute(check_query, (origin, dest, date_str, is_direct_pref))
+                
                 if cursor.fetchone()[0] > 0:
-                    print(f"⏩ Skipping {origin}->{dest} (Done today).")
+                    type_msg = "Direct" if is_direct_pref else "Standard"
+                    print(f"⏩ Skipping {origin}->{dest} ({type_msg}) - Already scraped today.")
                     continue 
 
                 try:
-                    # Logic Display
                     direct_msg = " (Direct Only ⚡)" if is_direct_pref else ""
                     if return_date_obj:
                         print(f"\n🔎 Checking {origin}->{dest}{direct_msg} | Dep: {date_str} | Ret: {return_date_obj}")
                     else:
                         print(f"\n🔎 Checking {origin}->{dest}{direct_msg} | Dep: {date_str}")
                     
-                    # 3. PREPARE PARAMETERS
                     api_params = {
                         "originLocationCode": origin,
                         "destinationLocationCode": dest,
@@ -74,24 +75,23 @@ def run_pipeline():
                     if return_date_obj:
                         api_params["returnDate"] = str(return_date_obj)
                     
-                    # --- NEW LOGIC: DIRECT FLIGHTS ---
                     if is_direct_pref:
                         api_params["nonStop"] = True
-                    # ---------------------------------
 
-                    # 4. CALL API
+                    # CALL API
                     response = amadeus.shopping.flight_offers_search.get(**api_params)
                     
                     if not response.data:
                         print(f"   ⚠️  0 flights found.")
                     
-                    # 5. SAVE
+                    # --- FIX: UPDATED INSERT QUERY ---
+                    # We save 'is_direct_pref' into the database
                     data_json = json.dumps(response.data)
                     query = """
-                        INSERT INTO raw_flights (origin_code, dest_code, flight_date, raw_response)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO raw_flights (origin_code, dest_code, flight_date, raw_response, is_direct_search)
+                        VALUES (%s, %s, %s, %s, %s)
                     """
-                    cursor.execute(query, (origin, dest, date_str, data_json))
+                    cursor.execute(query, (origin, dest, date_str, data_json, is_direct_pref))
                     conn.commit()
                     print(f"   ✅ Saved.")
 
