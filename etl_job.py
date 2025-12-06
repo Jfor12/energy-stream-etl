@@ -48,7 +48,7 @@ def run_pipeline():
                     WHERE origin_code = %s 
                     AND dest_code = %s 
                     AND flight_date = %s 
-                    AND DATE(scraped_at) = CURRENT_DATE
+                    AND DATE(ingested_at) = CURRENT_DATE
                 """
                 cursor.execute(check_query, (origin, dest, date_str))
                 if cursor.fetchone()[0] > 0:
