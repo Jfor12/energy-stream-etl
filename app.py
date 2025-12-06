@@ -86,7 +86,7 @@ with st.sidebar:
     ---
     **Built by Jfor12**
     
-    [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/Jfor12) | [📧 Email](mailto:your-email@example.com)
+    [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/jacopofornesi) | [📧 Email](mailto:jacopofornesi@hotmail.com)
     """)
 
 # --- MAIN LAYOUT ---
