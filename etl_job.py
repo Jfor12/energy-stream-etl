@@ -29,7 +29,6 @@ def run_pipeline():
         with conn.cursor() as cursor:
             
             print("Fetching wishlist...")
-            # Reverted Select
             cursor.execute("SELECT origin_code, dest_code, flight_date, return_date FROM tracked_routes")
             db_routes = cursor.fetchall()
             
@@ -41,26 +40,31 @@ def run_pipeline():
                 origin, dest, date_obj, return_date_obj = r
                 date_str = str(date_obj)
                 
-                # Check for duplicates (Simple version again)
+                # --- UPDATED DUPLICATE CHECK ---
+                # We use "IS NOT DISTINCT FROM" to handle NULLs correctly in SQL
+                # This ensures One-Way vs Round-Trip are treated as different searches
                 check_query = """
                     SELECT COUNT(*) FROM raw_flights 
                     WHERE origin_code = %s 
                     AND dest_code = %s 
                     AND flight_date = %s 
+                    AND return_date IS NOT DISTINCT FROM %s
                     AND DATE(ingested_at) = CURRENT_DATE
                 """
-                cursor.execute(check_query, (origin, dest, date_str))
+                cursor.execute(check_query, (origin, dest, date_str, return_date_obj))
+                
                 if cursor.fetchone()[0] > 0:
                     print(f"⏩ Skipping {origin}->{dest} (Already scraped today).")
                     continue 
 
                 try:
+                    # Print Logic
                     if return_date_obj:
                         print(f"\n🔎 Checking {origin}->{dest} | Dep: {date_str} | Ret: {return_date_obj}")
                     else:
                         print(f"\n🔎 Checking {origin}->{dest} | Dep: {date_str}")
                     
-                    # API Parameters (Standard)
+                    # API Parameters
                     api_params = {
                         "originLocationCode": origin,
                         "destinationLocationCode": dest,
@@ -77,13 +81,14 @@ def run_pipeline():
                     if not response.data:
                         print(f"   ⚠️  0 flights found.")
                     
-                    # SAVE (Simple Insert)
+                    # --- UPDATED INSERT QUERY ---
+                    # We now insert the return_date_obj into the new column
                     data_json = json.dumps(response.data)
                     query = """
-                        INSERT INTO raw_flights (origin_code, dest_code, flight_date, raw_response)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO raw_flights (origin_code, dest_code, flight_date, return_date, raw_response)
+                        VALUES (%s, %s, %s, %s, %s)
                     """
-                    cursor.execute(query, (origin, dest, date_str, data_json))
+                    cursor.execute(query, (origin, dest, date_str, return_date_obj, data_json))
                     conn.commit()
                     print(f"   ✅ Saved.")
 
