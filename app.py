@@ -84,7 +84,7 @@ with st.sidebar:
     st.divider()
     st.markdown("""
     ---
-    **Built by Jfor12**
+    **Built by Jacopo Fornesi**
     
     [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/jacopofornesi) | [📧 Email](mailto:jacopofornesi@hotmail.com)
     """)
