@@ -94,7 +94,7 @@ with st.sidebar:
 # CENTERED HEADER
 c1, c2, c3 = st.columns([1, 6, 1])
 with c2:
-    st.title("🌍 Flight Price Intelligence")
+    st.title("🌍 Flight Price Tracker")
     st.markdown("Monitor global flight prices and get direct booking links.")
 
 st.markdown("---")

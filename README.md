@@ -17,7 +17,7 @@ A lightweight data pipeline and dashboard to track flight prices for routes you 
 - ✅ Automated daily ETL: fetches flight offers and stores raw API responses.
 - ✅ Direct booking links: one-click access to Skyscanner for each route.
 - ✅ Live status indicator: displays online status, update frequency, and last data ingestion time.
-- ✅ Price analytics dashboard: integrated Google Looker Studio for visualizing trends.
+- ✅ Price analytics dashboard: integrated Google Looker Studio for visualising trends.
 - ✅ Professional blue theme: clean, modern UI design.
 - ✅ Test environment warning: clearly indicates simulated pricing data.
 - ✅ Developer credits: GitHub, LinkedIn, and email links in the sidebar.
@@ -30,11 +30,15 @@ A lightweight data pipeline and dashboard to track flight prices for routes you 
 - PostgreSQL (database) via `psycopg` v3
 - Amadeus Flight Offers Search API (`amadeus` Python client)
 - Google Looker Studio (analytics dashboard)
+- Docker (containerization)
+- Google Cloud Run (serverless container hosting)
 - GitHub Actions for scheduled ETL runs
 
 ---
 
-## 🚀 Quick Start (Local)
+## 🚀 Quick Start
+
+### Local Development
 
 1. Clone the repository:
 
@@ -79,6 +83,31 @@ The app will launch at `http://localhost:8501`.
 ```bash
 python etl_job.py
 ```
+
+### Google Cloud Deployment
+
+The Streamlit app runs as a Docker container on **Google Cloud Run** for serverless, scalable hosting.
+
+1. **Build and push the Docker image**:
+
+```bash
+gcloud builds submit --tag gcr.io/your-project-id/flight-data-pipeline
+```
+
+2. **Deploy to Cloud Run**:
+
+```bash
+gcloud run deploy flight-data-pipeline \
+  --image gcr.io/your-project-id/flight-data-pipeline \
+  --platform managed \
+  --region us-central1 \
+  --memory 1Gi \
+  --set-env-vars DATABASE_URL=your_database_url,AMADEUS_KEY=your_key,AMADEUS_SECRET=your_secret
+```
+
+3. **Access your app**: Cloud Run will provide a public URL (e.g., `https://flight-data-pipeline-xxxxx.run.app`).
+
+4. **Scale and monitor**: Use Cloud Run's built-in monitoring, logging, and auto-scaling capabilities.
 
 ---
 
@@ -199,11 +228,11 @@ In CI (GitHub Actions), configure these as repository secrets. For local develop
 - Loads all tracked routes from the database.
 - Queries the Amadeus Flight Offers Search API for each route.
 - Stores raw API responses as JSON in the `raw_flights` table.
-- Avoids duplicate daily scrapes to optimize API calls.
+- Avoids duplicate daily scrapes to optimise API calls.
 - Prints detailed logs for monitoring and debugging.
 
 ### Automated Scheduling
-The ETL job is designed to run periodically (e.g., daily at 08:00 UTC) via GitHub Actions or your scheduler of choice.
+The ETL job is designed to run periodically (e.g., daily at 08:00 UTC) via GitHub Actions, Cloud Scheduler, or your scheduler of choice.
 
 ---
 
@@ -247,7 +276,7 @@ jobs:
 - **Price alerts**: Implement email or Slack notifications when prices drop below a threshold.
 - **Historical analysis**: Build advanced analytics views in Looker Studio or export to additional tools.
 - **Multi-currency support**: Add currency conversion and display options.
-- **Mobile responsive**: Further optimize the UI for mobile devices.
+- **Mobile responsive**: Further optimise the UI for mobile devices.
 
 ---
 
