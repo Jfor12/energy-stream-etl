@@ -1,4 +1,4 @@
-name: CarbonStream ETL - Hourly
+name: CarbonStream ETL Pipeline
 
 on:
   schedule:
