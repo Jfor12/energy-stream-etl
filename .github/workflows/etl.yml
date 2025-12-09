@@ -2,7 +2,7 @@ name: CarbonStream ETL - Hourly
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Every hour at :00
+    - cron: '*/30 * * * *'  # Every 30 minutes
   workflow_dispatch:     # Allow manual trigger
 
 jobs:
