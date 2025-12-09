@@ -1,5 +1,6 @@
-amadeus
 psycopg[binary]
 requests
 python-dotenv
-streamlit
+prefect
+pytest
+pytest-cov
