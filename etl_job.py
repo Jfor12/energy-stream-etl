@@ -223,16 +223,16 @@ def run_pipeline():
             ensure_table(conn)
             try:
                 with conn.cursor() as cursor:
-                    # Check if timestamp already exists to prevent duplicates
+                    # Check if a record already exists for the current hour to prevent duplicates
                     check_sql = """
                         SELECT COUNT(*) FROM grid_telemetry
-                        WHERE timestamp = %s
+                        WHERE DATE_TRUNC('hour', timestamp) = DATE_TRUNC('hour', %s)
                     """
                     cursor.execute(check_sql, (from_time,))
                     exists = cursor.fetchone()[0] > 0
                     
                     if exists:
-                        logger.info(f"⏭️  Skipping duplicate - data already exists for timestamp: {from_time}")
+                        logger.info(f"⏭️  Skipping duplicate - data already exists for hour: {from_time}")
                         rows_inserted = 0
                         status = "skipped"
                     else:
