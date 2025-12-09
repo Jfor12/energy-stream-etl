@@ -1,297 +1,600 @@
-# ✈️ Flight Price Tracker & ETL
+# ⚡ CarbonStream: National Grid Telemetry Pipeline
 
-A lightweight data pipeline and dashboard to track flight prices for routes you care about. Use the Streamlit app to manage a watchlist of routes and an ETL job (scheduled via GitHub Actions or run locally) to fetch daily flight offers from the Amadeus API and store raw results in PostgreSQL.
+CarbonStream is an automated data engineering pipeline that monitors National Grid carbon intensity in real-time. It ingests live generation mix (Solar, Wind, Gas, Nuclear) and archives telemetry for historical analysis.
 
-**Key Features:**
-- **Intuitive UI**: Manage tracked routes (origin, destination, dates) with a modern blue-themed Streamlit interface.
-- **Automated ETL**: Daily job fetches flight offers from Amadeus and stores raw JSON responses in PostgreSQL.
-- **Quick Booking Links**: Direct Skyscanner links for each tracked route.
-- **Real-time Updates**: Sidebar displays the latest data ingestion timestamp.
-- **Interactive Analytics**: Google Looker Studio dashboard integration for price analysis.
-- **Robust Error Handling**: Graceful management of API errors, empty results, and database issues.
+**Architecture:**
+- **Ingestion (GitHub Actions)**: Hourly cron hits the National Grid ESO API (free)
+- **Storage (PostgreSQL/Supabase)**: Validated telemetry stored as time-series
+- **Analytics (SQL/Looker)**: Dashboard and views for renewable trends
 
 ---
 
 ## 🌟 Features
-- ✅ Watchlist management: add, view, and delete tracked routes from the UI.
-- ✅ Automated daily ETL: fetches flight offers and stores raw API responses.
-- ✅ Direct booking links: one-click access to Skyscanner for each route.
-- ✅ Live status indicator: displays online status, update frequency, and last data ingestion time.
-- ✅ Price analytics dashboard: integrated Google Looker Studio for visualising trends.
-- ✅ Professional blue theme: clean, modern UI design.
-- ✅ Test environment warning: clearly indicates simulated pricing data.
-- ✅ Developer credits: GitHub, LinkedIn, and email links in the sidebar.
+- ✅ **Automated ETL**: Hourly GitHub Actions job - completely free
+- ✅ **Production logging**: Structured logging with timestamps
+- ✅ **Retry logic**: Exponential backoff for API failures (3 retries)
+- ✅ **Data quality checks**: Null validation, type checking, value ranges
+- ✅ **ETL metadata tracking**: Run history with success/failure status
+- ✅ **Unit tested**: 11 pytest tests covering core functions
+- ✅ **Postgres-first**: Schema ready for Supabase or any managed Postgres
 
 ---
 
 ## 🛠️ Tech Stack
-- Python 3.9+
-- Streamlit (frontend with custom CSS styling)
-- PostgreSQL (database) via `psycopg` v3
-- Amadeus Flight Offers Search API (`amadeus` Python client)
-- Google Looker Studio (analytics dashboard)
-- Docker (containerization)
-- Google Cloud Run (serverless container hosting)
-- GitHub Actions for scheduled ETL runs
+- **Python 3.9+** - Core runtime
+- **PostgreSQL** via `psycopg` v3 - Time-series database
+- **Requests** - National Grid ESO Carbon Intensity API
+- **GitHub Actions** - Free hourly scheduling
+- **pytest** - Unit testing
 
 ---
 
 ## 🚀 Quick Start
 
-### Local Development
-
-1. Clone the repository:
-
+### 1. Local Testing
 ```bash
 git clone https://github.com/Jfor12/flight-data-pipeline.git
 cd flight-data-pipeline
-```
-
-2. Create and activate a Python virtual environment (optional but recommended):
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-3. Install dependencies:
-
-```bash
 pip install -r requirements.txt
-```
 
-4. Create a `.env` file in the project root (for local development) with the following variables:
+# Create .env file
+echo "DATABASE_URL=postgresql://user:password@host:port/dbname" > .env
 
-```env
-DATABASE_URL=postgresql://user:password@host:port/dbname
-AMADEUS_KEY=your_amadeus_api_key
-AMADEUS_SECRET=your_amadeus_api_secret
-```
-
-5. Apply the database schema (example SQL below) to create the required tables in PostgreSQL.
-
-6. Run the Streamlit app:
-
-```bash
-streamlit run app.py
-```
-
-The app will launch at `http://localhost:8501`.
-
-7. Run the ETL job manually (or rely on scheduled CI runs):
-
-```bash
+# Run ETL once
 python etl_job.py
 ```
 
-### Google Cloud Deployment
+### 2. Deploy to GitHub Actions (Free!)
 
-The Streamlit app runs as a Docker container on **Google Cloud Run** for serverless, scalable hosting.
-
-1. **Build and push the Docker image**:
-
+**Push code:**
 ```bash
-gcloud builds submit --tag gcr.io/your-project-id/flight-data-pipeline
+git add .
+git commit -m "Add CarbonStream ETL pipeline"
+git push origin main
 ```
 
-2. **Deploy to Cloud Run**:
+**Add DATABASE_URL secret:**
+1. GitHub repo → Settings → Secrets and variables → Actions
+2. Click: New repository secret
+3. Name: `DATABASE_URL`
+4. Value: `postgresql://user:password@host:port/dbname`
+5. Save
 
-```bash
-gcloud run deploy flight-data-pipeline \
-  --image gcr.io/your-project-id/flight-data-pipeline \
-  --platform managed \
-  --region us-central1 \
-  --memory 1Gi \
-  --set-env-vars DATABASE_URL=your_database_url,AMADEUS_KEY=your_key,AMADEUS_SECRET=your_secret
-```
-
-3. **Access your app**: Cloud Run will provide a public URL (e.g., `https://flight-data-pipeline-xxxxx.run.app`).
-
-4. **Scale and monitor**: Use Cloud Run's built-in monitoring, logging, and auto-scaling capabilities.
+**That's it!** ✅ Your pipeline runs hourly starting next :00 UTC
 
 ---
 
-## 📦 Database Schema
-Run these SQL statements in your PostgreSQL database to create the required tables:
+## 📊 How It Works
+
+### ETL Pipeline (`etl_job.py`)
+
+**Every hour:**
+- Calls `https://api.carbonintensity.org.uk/intensity` for carbon intensity
+- Calls `https://api.carbonintensity.org.uk/generation` for fuel mix
+- Validates data (null checks, type checking, range validation)
+- Stores to PostgreSQL `grid_telemetry` table
+- Logs execution to `etl_runs` table
+
+**Production features:**
+- Structured logging to file + console
+- Exponential backoff retry (3 attempts, 2-8s delays)
+- Data quality validation (0-1000 gCO2/kWh, 0-100% fuel percentages)
+- Automatic table creation
+- Transactional database writes with rollback
+
+### Database Schema
 
 ```sql
-CREATE TABLE public.tracked_routes (
-  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
-  origin_code text NOT NULL,
-  dest_code text NOT NULL,
-  flight_date date NOT NULL,
-  return_date date,
-  created_at timestamp without time zone DEFAULT now(),
-  target_price numeric,
-  CONSTRAINT tracked_routes_pkey PRIMARY KEY (id)
+CREATE TABLE IF NOT EXISTS grid_telemetry (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    overall_intensity INT,
+    fuel_gas_perc DOUBLE PRECISION,
+    fuel_nuclear_perc DOUBLE PRECISION,
+    fuel_wind_perc DOUBLE PRECISION,
+    fuel_solar_perc DOUBLE PRECISION
 );
 
-CREATE TABLE public.raw_flights (
-  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
-  ingested_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
-  origin_code text,
-  dest_code text,
-  flight_date date,
-  raw_response jsonb,
-  return_date date,
-  CONSTRAINT raw_flights_pkey PRIMARY KEY (id)
-);
-
-CREATE TABLE public.airport_codes (
-  iata_code character NOT NULL,
-  city_name text,
-  full_name text,
-  CONSTRAINT airport_codes_pkey PRIMARY KEY (iata_code)
-);
-
-CREATE TABLE public.airline_codes (
-  iata_code character NOT NULL,
-  airline_name text,
-  CONSTRAINT airline_codes_pkey PRIMARY KEY (iata_code)
+CREATE TABLE IF NOT EXISTS etl_runs (
+    id BIGSERIAL PRIMARY KEY,
+    run_timestamp TIMESTAMPTZ DEFAULT NOW(),
+    status VARCHAR(20),
+    rows_inserted INT,
+    execution_time_ms INT,
+    error_message TEXT
 );
 ```
 
-### Analytics View for Looker Studio
+---
 
-Create this view to power your Looker Studio dashboard:
+## 🧪 Testing
 
+Run unit tests locally:
+```bash
+PYTHONPATH=. pytest tests/test_etl.py -v
+```
+
+**Coverage:**
+- Data validation (null, type, range)
+- ISO8601 timestamp parsing
+- Integration test for full validation pipeline
+- Error handling for invalid data
+
+**Result:** ✅ 11 tests passing
+
+---
+
+## 🔁 GitHub Actions Workflow
+
+Workflow file: `.github/workflows/etl.yml`
+
+**What it does:**
+- Runs hourly at :00 UTC (configurable with cron)
+- Clones your code
+- Installs dependencies (cached)
+- Runs `python etl_job.py`
+- Injects `DATABASE_URL` from secrets
+- Uploads logs on failure (30-day retention)
+
+**Monitor runs:**
+- Repository → Actions tab
+- See all runs with timestamps and status
+- Click any run to view full logs
+- Manual trigger available: "Run workflow" button
+
+---
+
+## 📈 Monitoring Your Pipeline
+
+### Query Success Rate
 ```sql
-DROP VIEW IF EXISTS view_flight_prices;
-
-CREATE VIEW view_flight_prices AS
 SELECT 
-    f.id,
-    f.ingested_at::date as scrape_date,
-    
-    -- AIRPORTS (Normalized)
-    f.origin_code,
-    COALESCE(a1.city_name, f.origin_code) as origin_city,
-    f.dest_code,
-    COALESCE(a2.city_name, f.dest_code) as dest_city,
-    
-    f.flight_date,
-    f.return_date,
-    
-    -- PRICE
-    (f.raw_response->0->'price'->>'total')::DECIMAL as price,
-    f.raw_response->0->'price'->>'currency' as currency,
-    
-    -- AIRLINE (Normalized)
-    (f.raw_response->0->'validatingAirlineCodes'->>0) as airline_code,
-    COALESCE(ac.airline_name, (f.raw_response->0->'validatingAirlineCodes'->>0)) as airline_name,
-
-    -- ROUND TRIP CHECK
-    CASE 
-        WHEN f.return_date IS NOT NULL THEN TRUE 
-        ELSE FALSE 
-    END as is_round_trip,
-
-    -- DIRECT FLIGHT CHECK
-    CASE 
-        WHEN f.return_date IS NOT NULL THEN 
-            (jsonb_array_length(f.raw_response->0->'itineraries'->0->'segments') = 1 
-             AND 
-             jsonb_array_length(f.raw_response->0->'itineraries'->1->'segments') = 1)
-        ELSE 
-            jsonb_array_length(f.raw_response->0->'itineraries'->0->'segments') = 1
-    END as is_flight_direct
-
-FROM raw_flights f
-LEFT JOIN airport_codes a1 ON f.origin_code = a1.iata_code
-LEFT JOIN airport_codes a2 ON f.dest_code = a2.iata_code
-LEFT JOIN airline_codes ac ON (f.raw_response->0->'validatingAirlineCodes'->>0) = ac.iata_code
-WHERE f.raw_response IS NOT NULL 
-  AND jsonb_array_length(f.raw_response) > 0;
+  DATE(run_timestamp) AS day,
+  COUNT(*) AS total_runs,
+  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful,
+  ROUND(100.0 * SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) / COUNT(*), 2) AS success_pct
+FROM etl_runs
+WHERE run_timestamp >= NOW() - INTERVAL '7 days'
+GROUP BY 1
+ORDER BY 1 DESC;
 ```
 
-This view normalizes raw flight data and joins airport/airline reference tables, making it perfect for analytics dashboards.
+### View Recent Runs
+```sql
+SELECT run_timestamp, status, rows_inserted, execution_time_ms, error_message
+FROM etl_runs
+ORDER BY run_timestamp DESC
+LIMIT 10;
+```
+
+### Check Data
+```sql
+SELECT COUNT(*) FROM grid_telemetry;
+SELECT * FROM grid_telemetry ORDER BY timestamp DESC LIMIT 5;
+```
 
 ---
 
 ## 🔑 Environment Variables
-- `DATABASE_URL` — PostgreSQL connection string (required).
-- `AMADEUS_KEY` and `AMADEUS_SECRET` — Amadeus API credentials (required for ETL).
+- `DATABASE_URL` — Required. Postgres connection string: `postgresql://user:password@host:port/dbname`
+  - **Local**: Set in `.env` file
+  - **GitHub Actions**: Set as repository secret
 
-In CI (GitHub Actions), configure these as repository secrets. For local development, use a `.env` file.
+---
+
+## 🧰 Troubleshooting
+
+**Workflow not running:**
+- Wait until next hour (:00 UTC)
+- Or manually trigger: Actions tab → Run workflow
+- Check workflow file exists: `.github/workflows/etl.yml` ✓
+
+**Failed run:**
+- Click failed run in Actions tab
+- View logs to see error details
+- Common issue: `DATABASE_URL` secret not set
+
+**No data in database:**
+- Verify `DATABASE_URL` is correct: `psql "$DATABASE_URL"`
+- Test locally: `python etl_job.py`
+- Check `etl_runs` table for error messages
+
+**API failures:**
+- Logs show retry attempts (exponential backoff)
+- Usually transient - will succeed on next hourly run
+- Check `etl_pipeline.log` for details
+
+---
+
+## 💰 Cost
+
+| Component | Cost | Notes |
+|-----------|------|-------|
+| GitHub Actions | $0 | 2,000 free min/month |
+| Supabase DB | $0 | Free tier 500MB |
+| Pipeline usage | $0 | ~360 min/month (18%) |
+| **TOTAL** | **$0** | **Forever free** ✅ |
+
+---
+
+## 🎯 Use Cases
+
+**Monitor grid cleanliness:**
+- Identify hours with high renewable generation
+- Plan energy-intensive tasks during green windows
+
+**Analyze trends:**
+- Track wind and solar percentage over time
+- Compare regions and seasons
+
+**Optimize consumption:**
+- EV charging during low-carbon hours
+- Cloud compute job scheduling
+
+---
+
+## 📁 Project Structure
+
+```
+flight-data-pipeline/
+├── etl_job.py                  # Production ETL with logging + validation
+├── requirements.txt            # Python dependencies
+├── tests/
+│   └── test_etl.py             # 11 unit tests
+├── .github/
+│   └── workflows/
+│       └── etl.yml             # GitHub Actions schedule
+├── docs/
+│   └── GITHUB_ACTIONS_SETUP.md # Detailed setup guide
+├── GITHUB_ACTIONS_SETUP.md     # Quick start
+└── README.md                   # This file
+```
+
+---
+
+## 🚀 Next Steps
+
+1. ✅ Deploy to GitHub (push code + add secret)
+2. ✅ Wait for first run (next :00 UTC)
+3. ✅ Check Actions tab for logs
+4. ✅ Query database to verify data
+5. ✅ Set up Looker dashboard
+6. ✅ Monitor with SQL queries
+
+---
+
+## 👤 Built by
+**Jfor12** — [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/jacopofornesi)
+
+---
+
+## 🚀 Quick Start (Local)
+
+1) Clone and install deps
+```bash
+cd flight-data-pipeline
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+2) Set environment
+Create a `.env` file:
+```env
+DATABASE_URL=postgresql://user:password@host:port/dbname
+```
+
+3) Create the tables
+```sql
+CREATE TABLE IF NOT EXISTS grid_telemetry (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    overall_intensity INT,
+    fuel_gas_perc DOUBLE PRECISION,
+    fuel_nuclear_perc DOUBLE PRECISION,
+    fuel_wind_perc DOUBLE PRECISION,
+    fuel_solar_perc DOUBLE PRECISION
+);
+
+CREATE TABLE IF NOT EXISTS etl_runs (
+    id BIGSERIAL PRIMARY KEY,
+    run_timestamp TIMESTAMPTZ DEFAULT NOW(),
+    status VARCHAR(20),
+    rows_inserted INT,
+    execution_time_ms INT,
+    error_message TEXT
+);
+```
+
+4) Run the ETL once
+```bash
+python etl_job.py
+```
+
+Check logs in `etl_pipeline.log` for execution details.
+
+5) (Optional) Run with Prefect
+```bash
+python prefect_flow.py
+```
 
 ---
 
 ## ▶️ How It Works
 
-### Streamlit App (`app.py`)
-- **Manage Watchlist Tab**: Add new routes with origin/destination airports and travel dates. View, edit, and delete tracked routes. Generate direct Skyscanner booking links.
-- **Price Analytics Tab**: Interactive Google Looker Studio dashboard for price trend analysis.
-- **Sidebar**: Live status, update frequency, last data ingestion timestamp (from `ingested_at`), and developer information.
-- **Blue Theme**: Professional, modern UI with custom CSS styling.
+### ETL Pipeline (`etl_job.py`)
 
-### ETL Job (`etl_job.py`)
-- Loads all tracked routes from the database.
-- Queries the Amadeus Flight Offers Search API for each route.
-- Stores raw API responses as JSON in the `raw_flights` table.
-- Avoids duplicate daily scrapes to optimise API calls.
-- Prints detailed logs for monitoring and debugging.
+**Data Ingestion**
+- Calls `https://api.carbonintensity.org.uk/intensity` for current carbon intensity.
+- Calls `https://api.carbonintensity.org.uk/generation` for fuel mix (wind, solar, gas, nuclear).
+- **Retry logic**: 3 attempts with exponential backoff (2s, 4s, 8s delays).
 
-### Automated Scheduling
-The ETL job is designed to run periodically (e.g., daily at 08:00 UTC) via GitHub Actions, Cloud Scheduler, or your scheduler of choice.
+**Data Quality Validation**
+- **Null checks**: Ensures critical fields (timestamp, intensity) are not null.
+- **Type validation**: Verifies data types match schema expectations.
+- **Value ranges**: Carbon intensity (0-1000 gCO2/kWh), fuel percentages (0-100%).
+- **Freshness check**: Flags data older than 2 hours.
+
+**Logging & Monitoring**
+- Structured logging to `etl_pipeline.log` and console.
+- ETL metadata tracked in `etl_runs` table (status, execution time, errors).
+- Log levels: INFO (normal flow), WARNING (retries), ERROR (failures).
+
+**Database Operations**
+- Auto-creates tables if missing (`grid_telemetry`, `etl_runs`).
+- Transactional inserts with rollback on failure.
+- Logs every run outcome for debugging and monitoring.
+
+### Workflow Orchestration (`prefect_flow.py`)
+
+Prefect provides:
+- **Visual pipeline monitoring** - See task execution in Prefect UI.
+- **Automatic retries** - Task-level retry configuration.
+- **Parallel execution** - Fetch intensity and generation concurrently.
+- **Schedule management** - Define cron schedules in code.
+
+Run locally:
+```bash
+# Start Prefect server (optional, for UI)
+prefect server start
+
+# In another terminal, run the flow
+python prefect_flow.py
+```
+
+Deploy to Prefect Cloud:
+```bash
+prefect deploy prefect_flow.py:carbonstream_etl_flow -n "hourly-carbon-etl" -p default
+```
+
+### Analytics (SQL views)
+Add a daily cleanliness view for trend analysis:
+```sql
+CREATE OR REPLACE VIEW view_daily_cleanliness AS
+SELECT
+  DATE(timestamp) AS day,
+  AVG(overall_intensity) AS avg_intensity,
+  AVG(fuel_wind_perc + fuel_solar_perc) AS avg_renewables_perc,
+  AVG(fuel_gas_perc) AS avg_fossil_perc,
+  COUNT(*) AS samples
+FROM grid_telemetry
+GROUP BY 1
+ORDER BY 1 DESC;
+```
+
+### Looker Integration
+Connect Looker to your PostgreSQL database and create explores/dashboards using:
+- `grid_telemetry` table for time-series analysis
+- `view_daily_cleanliness` for aggregated daily metrics
+- `etl_runs` table for pipeline health monitoring
+- Custom dimensions for green window detection and renewable percentage calculations
+
+**Example Dashboard Metrics:**
+- Carbon intensity trends (hourly, daily, weekly)
+- Renewable vs. fossil fuel mix over time
+- ETL pipeline reliability (success rate, avg execution time)
+- Green window frequency analysis
 
 ---
 
-## 🔁 GitHub Actions (Scheduled ETL)
-Add a workflow file (`.github/workflows/etl.yml`) to run the ETL job on a schedule:
+## 🧪 Testing
 
-```yaml
-name: Daily Flight Price ETL
+Run unit tests:
+```bash
+pytest tests/ -v
+```
 
-on:
-  schedule:
-    - cron: '0 8 * * *'  # Daily at 08:00 UTC
+Run with coverage:
+```bash
+pytest tests/ --cov=etl_job --cov-report=html
+```
 
-jobs:
-  etl:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      - run: pip install -r requirements.txt
-      - run: python etl_job.py
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          AMADEUS_KEY: ${{ secrets.AMADEUS_KEY }}
-          AMADEUS_SECRET: ${{ secrets.AMADEUS_SECRET }}
+**Test Coverage:**
+- ✅ Data validation (null, type, range checks)
+- ✅ ISO8601 timestamp parsing
+- ✅ Integration test for full validation pipeline
+- ✅ Error handling for invalid data
+
+Example test output:
+```
+tests/test_etl.py::TestDataValidation::test_validate_intensity_valid PASSED
+tests/test_etl.py::TestDataValidation::test_validate_intensity_invalid PASSED
+tests/test_etl.py::TestDataValidation::test_validate_fuel_percentage_valid PASSED
+tests/test_etl.py::TestDateParsing::test_parse_iso8601_valid PASSED
+tests/test_etl.py::TestIntegration::test_full_validation_pipeline PASSED
 ```
 
 ---
 
+## 🔁 GitHub Actions (Free, Scheduled ETL) ⭐
+
+**Recommended for free hosting.** GitHub Actions runs your ETL job every hour automatically at no cost.
+
+### Quick Setup
+
+1) **Push code to GitHub**
+   ```bash
+   git add .
+   git commit -m "Add CarbonStream ETL pipeline"
+   git push origin main
+   ```
+
+2) **Set DATABASE_URL secret**
+   - Go to: GitHub repo → Settings → Secrets and variables → Actions
+   - Click: New repository secret
+   - Name: `DATABASE_URL`
+   - Value: `postgresql://user:pass@host:port/dbname`
+   - Click: Add secret
+
+3) **Done!** 🎉
+   - Workflow file is ready: `.github/workflows/etl.yml`
+   - Runs every hour automatically (UTC)
+   - View runs: Actions tab → CarbonStream ETL
+
+### What Happens
+
+```
+Every hour at :00 UTC:
+  ✓ GitHub Actions spins up Ubuntu runner
+  ✓ Clones your code
+  ✓ Installs dependencies
+  ✓ Runs: python etl_job.py
+  ✓ DATABASE_URL injected from secrets
+  ✓ Logs saved to artifacts (on failure)
+  ✓ Job completes in ~30-60 seconds
+```
+
+### Monitor Runs
+
+**GitHub Actions dashboard:**
+1. Repository → Actions tab
+2. See: All ETL runs with timestamps
+3. Click run to see full logs
+4. Check if completed ✅ or failed ❌
+
+**Example run log:**
+```
+2025-12-09 15:00:00 - === Starting CarbonStream ETL Pipeline ===
+2025-12-09 15:00:01 - Fetching carbon intensity from https://api.carbonintensity.org.uk/intensity
+2025-12-09 15:00:02 - Fetched intensity: 90 gCO2/kWh at 2025-12-09 14:30:00+00:00
+2025-12-09 15:00:02 - Fetching generation mix from https://api.carbonintensity.org.uk/generation
+2025-12-09 15:00:03 - Fetched generation mix: Wind=57.0%, Solar=1.1%
+2025-12-09 15:00:03 - ✅ All data quality checks passed
+2025-12-09 15:00:04 - ✅ Stored intensity=90, wind=57.0%
+2025-12-09 15:00:04 - ETL run logged: success, 1 rows, 1180ms
+```
+
+### Troubleshooting
+
+**Runs not appearing:**
+- Wait until top of next hour (:00 UTC)
+- Or manually trigger: Actions tab → CarbonStream ETL → Run workflow
+
+**Workflow shows ❌ failed:**
+- Click run to see logs
+- Common issue: `DATABASE_URL` secret not set
+- Check: Settings → Secrets → DATABASE_URL exists
+
+**API errors in logs:**
+- Check: `etl_pipeline.log` artifact (attached to failed runs)
+- Retry logic will handle temporary failures
+- Look for "Retry in Xs" messages
+
+### Free Tier Limits
+
+- **Minutes per month**: 2,000 (plenty for hourly!)
+- **Data storage**: 500MB for logs/artifacts
+- **Concurrent jobs**: 20
+
+**Your usage**: ~730 runs/month × ~30 seconds = ~360 minutes (~18% of limit) ✅
+
+### Cost: $0 (Forever) ✅
+
+---
+
+## 🔑 Environment Variables
+- `DATABASE_URL` — Required. Postgres connection string (format: `postgresql://user:pass@host:port/dbname`).
+  - **Local**: Set in `.env` file
+  - **GitHub Actions**: Set as repository secret (Settings → Secrets → DATABASE_URL)
+
+---
+
 ## 🧰 Troubleshooting
-- **Missing API keys**: Both `app.py` and `etl_job.py` validate environment variables and provide clear error messages.
-- **Database errors**: Verify `DATABASE_URL` is correct and tables exist. Check database logs for connection issues.
-- **Empty API results**: The Amadeus test environment may return no offers for certain routes. This is normal and logged.
+
+**No data in database**
+- Run `python etl_job.py` once to seed initial telemetry.
+- Check `etl_pipeline.log` for execution details and errors.
+- Query `etl_runs` table to see pipeline execution history.
+
+**API failures**
+- Check logs for retry attempts and backoff timing.
+- Verify network connectivity to `api.carbonintensity.org.uk`.
+- API updates every 30 minutes; occasional 404s are normal for future timestamps.
+
+**Data quality validation failures**
+- Check logs for specific validation errors (null, type, range).
+- Inspect `etl_runs.error_message` column for detailed error context.
+- Carbon intensity should be 0-1000 gCO2/kWh, fuel percentages 0-100%.
+
+**Connection errors**
+- Confirm `DATABASE_URL` is set correctly in `.env` or environment.
+- Ensure SSL is enabled (`sslmode=require` for Supabase).
+- Test connection: `psql "$DATABASE_URL"`
+
+**GitHub Actions failures**
+- Verify `DATABASE_URL` secret is set in repository settings.
+- Check workflow logs in Actions tab.
+- Ensure hourly cron doesn't conflict with API rate limits (none documented).
 
 ---
 
-## ✅ Tips & Next Steps
-- **Enhance route management**: Add more validation, favorites, and route templates.
-- **Price alerts**: Implement email or Slack notifications when prices drop below a threshold.
-- **Historical analysis**: Build advanced analytics views in Looker Studio or export to additional tools.
-- **Multi-currency support**: Add currency conversion and display options.
-- **Mobile responsive**: Further optimise the UI for mobile devices.
+## 📊 Monitoring ETL Health
+
+Query ETL run history:
+```sql
+-- Recent ETL runs
+SELECT run_timestamp, status, rows_inserted, execution_time_ms, error_message
+FROM etl_runs
+ORDER BY run_timestamp DESC
+LIMIT 20;
+
+-- Success rate (last 7 days)
+SELECT 
+  DATE(run_timestamp) AS day,
+  COUNT(*) AS total_runs,
+  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful_runs,
+  ROUND(100.0 * SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) / COUNT(*), 2) AS success_rate_pct,
+  AVG(execution_time_ms) AS avg_execution_ms
+FROM etl_runs
+WHERE run_timestamp >= NOW() - INTERVAL '7 days'
+GROUP BY 1
+ORDER BY 1 DESC;
+```
 
 ---
 
-## 👥 Contributing
-Contributions are welcome! Please open issues or pull requests for enhancements or bug fixes.
+## 📁 Project Structure
 
----
-
-## 📄 License
-This project is provided as-is. Add a license file as needed.
+```
+flight-data-pipeline/
+├── etl_job.py              # Main ETL script with logging, validation, retry
+├── prefect_flow.py         # Prefect workflow orchestration
+├── requirements.txt        # Python dependencies
+├── .env                    # Local environment variables (not in git)
+├── etl_pipeline.log        # Auto-generated log file
+├── tests/
+│   └── test_etl.py         # Unit tests for validation and parsing
+├── .github/
+│   └── workflows/
+│       └── etl.yml         # Hourly GitHub Actions schedule
+├── Dockerfile              # Container image definition
+└── README.md               # This file
+```
 
 ---
 
 ## 👤 Built by
-**Jfor12** — [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/Jfor12)
-
-If you have questions or suggestions, feel free to reach out or open an issue!
+**Jfor12** — [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/jacopofornesi)
 

@@ -1,101 +1,33 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-*.egg-info/
-.installed.cfg
-*.egg
-pip-wheel-metadata/
-pip-log.txt
-wheelhouse/
-
-# Virtualenvs
+# Virtual environments
 venv/
+.venv/
 ENV/
 env/
-.venv/
-.ENV/
-env.bak/
-venv.bak/
 
-# Pytest / test
+# Testing
 .pytest_cache/
-tox/
-.nox/
-coverage.xml
 .coverage
 htmlcov/
-.cache
-nosetests.xml
+*.coverage
 
-# Mypy / linters
-.mypy_cache/
-.pyre/
-.pytype/
-
-# IDEs / editors
+# IDE
 .vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs and databases
-*.log
-*.sqlite3
-*.db
-
-# Jupyter
-.ipynb_checkpoints
-
-# Secrets / env
-.env
-.env.* 
-secrets.* 
-# AWS / GCP credentials (if used locally)
-.aws/
-.gcloud/
-
-# Streamlit / app artifacts (if any)
-.streamlit/
-
-# Static / build artifacts
-staticfiles/
-node_modules/
-
-# Optional: local docker-compose overrides
-docker-compose.override.yml
-
-# JetBrains caches
 .idea/
 *.iml
 
-# Coverage reports
-.coverage.*
+# OS
+.DS_Store
+Thumbs.db
 
-# Virtualenvs
-.venv/
-venv/
-ENV/
-env/.venv/
-.venv/
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
