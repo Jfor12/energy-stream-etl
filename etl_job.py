@@ -223,31 +223,44 @@ def run_pipeline():
             ensure_table(conn)
             try:
                 with conn.cursor() as cursor:
-                    insert_sql = """
-                        INSERT INTO grid_telemetry (
-                            timestamp,
-                            overall_intensity,
-                            fuel_gas_perc,
-                            fuel_nuclear_perc,
-                            fuel_wind_perc,
-                            fuel_solar_perc
-                        ) VALUES (%s, %s, %s, %s, %s, %s)
+                    # Check if timestamp already exists to prevent duplicates
+                    check_sql = """
+                        SELECT COUNT(*) FROM grid_telemetry
+                        WHERE timestamp = %s
                     """
-                    cursor.execute(
-                        insert_sql,
-                        (
-                            from_time,
-                            intensity_value,
-                            mix.get("gas"),
-                            mix.get("nuclear"),
-                            mix.get("wind"),
-                            mix.get("solar"),
-                        ),
-                    )
-                    conn.commit()
-                    rows_inserted = 1
-                    status = "success"
-                logger.info(f"✅ Stored intensity={intensity_value}, wind={mix.get('wind')}% | window: {from_time} -> {to_time}")
+                    cursor.execute(check_sql, (from_time,))
+                    exists = cursor.fetchone()[0] > 0
+                    
+                    if exists:
+                        logger.info(f"⏭️  Skipping duplicate - data already exists for timestamp: {from_time}")
+                        rows_inserted = 0
+                        status = "skipped"
+                    else:
+                        insert_sql = """
+                            INSERT INTO grid_telemetry (
+                                timestamp,
+                                overall_intensity,
+                                fuel_gas_perc,
+                                fuel_nuclear_perc,
+                                fuel_wind_perc,
+                                fuel_solar_perc
+                            ) VALUES (%s, %s, %s, %s, %s, %s)
+                        """
+                        cursor.execute(
+                            insert_sql,
+                            (
+                                from_time,
+                                intensity_value,
+                                mix.get("gas"),
+                                mix.get("nuclear"),
+                                mix.get("wind"),
+                                mix.get("solar"),
+                            ),
+                        )
+                        conn.commit()
+                        rows_inserted = 1
+                        status = "success"
+                        logger.info(f"✅ Stored intensity={intensity_value}, wind={mix.get('wind')}% | window: {from_time} -> {to_time}")
                 
                 # Log ETL run metadata
                 execution_time_ms = int((time.time() - start_time) * 1000)

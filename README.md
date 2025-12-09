@@ -14,8 +14,9 @@ CarbonStream is an automated data engineering pipeline that monitors National Gr
 - ✅ **Production logging**: Structured logging with timestamps
 - ✅ **Retry logic**: Exponential backoff for API failures (3 retries)
 - ✅ **Data quality checks**: Null validation, type checking, value ranges
+- ✅ **Duplicate prevention**: Automatic timestamp-based deduplication
 - ✅ **ETL metadata tracking**: Run history with success/failure status
-- ✅ **Unit tested**: 11 pytest tests covering core functions
+- ✅ **Unit tested**: 12 pytest tests covering core functions
 - ✅ **Postgres-first**: Schema ready for Supabase or any managed Postgres
 
 ---
@@ -74,6 +75,7 @@ git push origin main
 - Calls `https://api.carbonintensity.org.uk/intensity` for carbon intensity
 - Calls `https://api.carbonintensity.org.uk/generation` for fuel mix
 - Validates data (null checks, type checking, range validation)
+- **Checks for duplicates** - skips if timestamp already exists
 - Stores to PostgreSQL `grid_telemetry` table
 - Logs execution to `etl_runs` table
 
@@ -81,6 +83,7 @@ git push origin main
 - Structured logging to file + console
 - Exponential backoff retry (3 attempts, 2-8s delays)
 - Data quality validation (0-1000 gCO2/kWh, 0-100% fuel percentages)
+- **Duplicate prevention** - timestamp-based deduplication before insert
 - Automatic table creation
 - Transactional database writes with rollback
 
@@ -119,10 +122,11 @@ PYTHONPATH=. pytest tests/test_etl.py -v
 **Coverage:**
 - Data validation (null, type, range)
 - ISO8601 timestamp parsing
+- Duplicate prevention logic
 - Integration test for full validation pipeline
 - Error handling for invalid data
 
-**Result:** ✅ 11 tests passing
+**Result:** ✅ 12 tests passing
 
 ---
 

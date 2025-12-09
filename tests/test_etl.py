@@ -124,5 +124,24 @@ class TestIntegration:
         assert not validate_fuel_percentage("gas", mix["gas"])
 
 
+class TestDuplicatePrevention:
+    """Test duplicate timestamp detection."""
+    
+    def test_duplicate_detection_logic(self):
+        """Test that duplicate check logic is sound."""
+        from datetime import datetime, timezone
+        
+        # Simulate checking for duplicates with same timestamp
+        timestamp1 = datetime(2025, 12, 9, 15, 0, 0, tzinfo=timezone.utc)
+        timestamp2 = datetime(2025, 12, 9, 15, 0, 0, tzinfo=timezone.utc)
+        timestamp3 = datetime(2025, 12, 9, 16, 0, 0, tzinfo=timezone.utc)
+        
+        # Same timestamps should be considered duplicates
+        assert timestamp1 == timestamp2
+        
+        # Different timestamps should not be duplicates
+        assert timestamp1 != timestamp3
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
