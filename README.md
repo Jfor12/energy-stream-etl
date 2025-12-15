@@ -1,6 +1,6 @@
-# ⚡ CarbonStream: National Grid Telemetry Pipeline
+# ⚡ National Grid Telemetry Pipeline
 
-CarbonStream is an automated data engineering pipeline that monitors National Grid carbon intensity in real-time. It ingests live generation mix (Solar, Wind, Gas, Nuclear) and archives telemetry for historical analysis.
+An automated data engineering pipeline that monitors National Grid carbon intensity in real-time. It ingests live generation mix (Solar, Wind, Gas, Nuclear) and archives telemetry for historical analysis.
 
 **Architecture:**
 - **Ingestion (GitHub Actions)**: Hourly cron hits the National Grid ESO API (free)
@@ -32,7 +32,7 @@ CarbonStream is an automated data engineering pipeline that monitors National Gr
 
 ## 🚀 Quick Start
 
-### 1. Local Testing
+### 1. Local Development
 ```bash
 git clone https://github.com/Jfor12/flight-data-pipeline.git
 cd flight-data-pipeline
@@ -52,7 +52,7 @@ python etl_job.py
 **Push code:**
 ```bash
 git add .
-git commit -m "Add CarbonStream ETL pipeline"
+git commit -m "Add Grid ETL pipeline"
 git push origin main
 ```
 
@@ -119,14 +119,29 @@ Run unit tests locally:
 PYTHONPATH=. pytest tests/test_etl.py -v
 ```
 
-**Coverage:**
-- Data validation (null, type, range)
-- ISO8601 timestamp parsing
-- Duplicate prevention logic
-- Integration test for full validation pipeline
-- Error handling for invalid data
+**Test Coverage:**
+- ✅ Data validation (null, type, range checks)
+- ✅ ISO8601 timestamp parsing
+- ✅ Integration test for full validation pipeline
+- ✅ Error handling for invalid data
+- ✅ Duplicate prevention logic
 
-**Result:** ✅ 12 tests passing
+**Example output:**
+```
+tests/test_etl.py::TestDataValidation::test_validate_intensity_valid PASSED
+tests/test_etl.py::TestDataValidation::test_validate_intensity_invalid PASSED
+tests/test_etl.py::TestDataValidation::test_validate_fuel_percentage_valid PASSED
+tests/test_etl.py::TestDateParsing::test_parse_iso8601_valid PASSED
+tests/test_etl.py::TestIntegration::test_full_validation_pipeline PASSED
+tests/test_etl.py::TestDuplicatePrevention::test_duplicate_detection_logic PASSED
+
+============================== 12 passed in 1.27s ===============================
+```
+
+Run with coverage:
+```bash
+pytest tests/ --cov=etl_job --cov-report=html
+```
 
 ---
 
@@ -246,7 +261,7 @@ flight-data-pipeline/
 ├── etl_job.py                  # Production ETL with logging + validation
 ├── requirements.txt            # Python dependencies
 ├── tests/
-│   └── test_etl.py             # 11 unit tests
+│   └── test_etl.py             # 12 unit tests
 ├── .github/
 │   └── workflows/
 │       └── etl.yml             # GitHub Actions schedule
@@ -370,7 +385,7 @@ python prefect_flow.py
 
 Deploy to Prefect Cloud:
 ```bash
-prefect deploy prefect_flow.py:carbonstream_etl_flow -n "hourly-carbon-etl" -p default
+prefect deploy prefect_flow.py:grid_etl_flow -n "hourly-carbon-etl" -p default
 ```
 
 ### Analytics (SQL views)
@@ -403,35 +418,6 @@ Connect Looker to your PostgreSQL database and create explores/dashboards using:
 
 ---
 
-## 🧪 Testing
-
-Run unit tests:
-```bash
-pytest tests/ -v
-```
-
-Run with coverage:
-```bash
-pytest tests/ --cov=etl_job --cov-report=html
-```
-
-**Test Coverage:**
-- ✅ Data validation (null, type, range checks)
-- ✅ ISO8601 timestamp parsing
-- ✅ Integration test for full validation pipeline
-- ✅ Error handling for invalid data
-
-Example test output:
-```
-tests/test_etl.py::TestDataValidation::test_validate_intensity_valid PASSED
-tests/test_etl.py::TestDataValidation::test_validate_intensity_invalid PASSED
-tests/test_etl.py::TestDataValidation::test_validate_fuel_percentage_valid PASSED
-tests/test_etl.py::TestDateParsing::test_parse_iso8601_valid PASSED
-tests/test_etl.py::TestIntegration::test_full_validation_pipeline PASSED
-```
-
----
-
 ## 🔁 GitHub Actions (Free, Scheduled ETL) ⭐
 
 **Recommended for free hosting.** GitHub Actions runs your ETL job every hour automatically at no cost.
@@ -441,7 +427,7 @@ tests/test_etl.py::TestIntegration::test_full_validation_pipeline PASSED
 1) **Push code to GitHub**
    ```bash
    git add .
-   git commit -m "Add CarbonStream ETL pipeline"
+   git commit -m "Add Grid ETL pipeline"
    git push origin main
    ```
 
@@ -455,7 +441,7 @@ tests/test_etl.py::TestIntegration::test_full_validation_pipeline PASSED
 3) **Done!** 🎉
    - Workflow file is ready: `.github/workflows/etl.yml`
    - Runs every hour automatically (UTC)
-   - View runs: Actions tab → CarbonStream ETL
+   - View runs: Actions tab → Grid ETL
 
 ### What Happens
 
@@ -480,7 +466,7 @@ Every hour at :00 UTC:
 
 **Example run log:**
 ```
-2025-12-09 15:00:00 - === Starting CarbonStream ETL Pipeline ===
+2025-12-09 15:00:00 - === Starting Grid ETL Pipeline ===
 2025-12-09 15:00:01 - Fetching carbon intensity from https://api.carbonintensity.org.uk/intensity
 2025-12-09 15:00:02 - Fetched intensity: 90 gCO2/kWh at 2025-12-09 14:30:00+00:00
 2025-12-09 15:00:02 - Fetching generation mix from https://api.carbonintensity.org.uk/generation
@@ -494,7 +480,7 @@ Every hour at :00 UTC:
 
 **Runs not appearing:**
 - Wait until top of next hour (:00 UTC)
-- Or manually trigger: Actions tab → CarbonStream ETL → Run workflow
+- Or manually trigger: Actions tab → Grid ETL → Run workflow
 
 **Workflow shows ❌ failed:**
 - Click run to see logs
@@ -600,5 +586,5 @@ flight-data-pipeline/
 ---
 
 ## 👤 Built by
-**Jfor12** — [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/jacopofornesi)
+**Jacopo Fornesi** — [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/jacopofornesi)
 
