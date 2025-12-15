@@ -192,7 +192,7 @@ def run_pipeline():
         logger.error(f"❌ {error_message}")
         return
 
-    logger.info("=== Starting CarbonStream ETL Pipeline ===")
+    logger.info("=== Starting Grid ETL Pipeline ===")
     
     try:
         # Fetch data with retry logic

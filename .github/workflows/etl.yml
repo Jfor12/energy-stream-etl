@@ -1,4 +1,4 @@
-name: CarbonStream ETL Pipeline
+name: Grid ETL Pipeline
 
 on:
   schedule:

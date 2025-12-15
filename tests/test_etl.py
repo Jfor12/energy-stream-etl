@@ -1,5 +1,5 @@
 """
-Unit tests for CarbonStream ETL Pipeline.
+Unit tests for Grid ETL Pipeline.
 
 Tests cover:
 - Data validation functions

@@ -5,7 +5,7 @@
 ### Step 1: Push Code to GitHub
 ```bash
 git add .
-git commit -m "Add CarbonStream ETL pipeline"
+git commit -m "Add Grid ETL pipeline"
 git push origin main
 ```
 
@@ -30,7 +30,7 @@ That's it! ✅
 
 ### View All Runs
 1. Repository → **Actions** tab
-2. See: "CarbonStream ETL - Hourly" workflow
+2. See: "Grid ETL Pipeline" workflow
 3. Click to see run history with timestamps and status
 
 ### View Run Details
@@ -44,7 +44,7 @@ That's it! ✅
 
 ### Manual Trigger
 1. Actions tab
-2. Select: "CarbonStream ETL - Hourly"
+2. Select: "Grid ETL Pipeline"
 3. Click: **Run workflow**
 4. Select branch: `main`
 5. Click: **Run workflow**
