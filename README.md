@@ -18,6 +18,8 @@ An automated data engineering pipeline that monitors National Grid carbon intens
 - ✅ **ETL metadata tracking**: Run history with success/failure status
 - ✅ **Unit tested**: 12 pytest tests covering core functions
 - ✅ **Postgres-first**: Schema ready for Supabase or any managed Postgres
+- ✅ **Predictive analytics**: 24-hour forecasting with ensemble methods
+- ✅ **Accuracy tracking**: Real vs. forecasted comparisons
 
 ---
 
@@ -27,6 +29,8 @@ An automated data engineering pipeline that monitors National Grid carbon intens
 - **Requests** - National Grid ESO Carbon Intensity API
 - **GitHub Actions** - Free hourly scheduling
 - **pytest** - Unit testing
+- **Supabase** - Database and Edge Functions
+- **Hugging Face** - AI forecasting models
 
 ---
 
@@ -109,6 +113,292 @@ CREATE TABLE IF NOT EXISTS etl_runs (
     error_message TEXT
 );
 ```
+
+---
+
+## 🔮 Supabase Predictive Analytics (Version 2)
+
+Your pipeline now includes **automated forecasting** via Supabase Edge Functions and Hugging Face AI!
+
+### What's New
+
+**Forecasting Loop:**
+- Database webhook triggers on every new ETL insert
+- Edge Function pulls last 24 hours of wind data
+- Generates 6-hour wind generation predictions
+- Stores forecasts in `grid_predictions` table
+- Compare actual vs predicted in `actual_vs_predicted` view
+
+### Setup Instructions
+
+#### Step 1: Create Supabase Project
+1. Go to [supabase.com](https://supabase.com) and sign up (free)
+2. Create a new project
+3. Save your **Project Ref** and **Project URL**
+
+#### Step 2: Get API Keys
+1. Supabase Dashboard → **Settings** → **API**
+2. Copy:
+   - `SUPABASE_URL` (Project URL)
+   - `SUPABASE_ANON_KEY` (Anon key)
+   - `SUPABASE_SERVICE_ROLE_KEY` (Service role key)
+
+#### Step 3: Configure Environment
+Add to your `.env` file:
+```bash
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+HF_TOKEN=your_hugging_face_token
+```
+
+#### Step 4: Create Database Schema
+1. Go to Supabase Dashboard → **SQL Editor**
+2. Create new query
+3. Paste contents of `supabase/migrations/001_create_predictions_table.sql`
+4. Run query
+
+This creates:
+- `grid_predictions` table for forecasts
+- `actual_vs_predicted` view for comparison
+
+#### Step 5: Get Hugging Face Token
+1. Go to [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+2. Create new token (scope: "read")
+3. Add to `.env` as `HF_TOKEN`
+
+#### Step 6: Deploy Edge Function
+1. Go to Supabase Dashboard → **Edge Functions**
+2. Click **Create a new function**
+3. Name: `grid-forecaster`
+4. Copy code from `supabase/functions/grid-forecaster/index.ts`
+5. Paste and **Deploy**
+
+#### Step 7: Add Secret to Edge Function
+1. Go to **Edge Functions** → **grid-forecaster** → **Settings**
+2. Add secret:
+   - Key: `HF_TOKEN`
+   - Value: `hf_your_token_here`
+
+#### Step 8: Create Database Webhook
+1. Go to Supabase Dashboard → **Database** → **Webhooks**
+2. Click **Create a new webhook**
+3. Configure:
+   - **Name:** `run_forecast_on_insert`
+   - **Table:** `grid_telemetry`
+   - **Events:** `Insert`
+   - **Type:** `Supabase Edge Functions`
+   - **Function:** `grid-forecaster`
+4. Click **Save**
+
+#### Step 9: Test the Integration
+```bash
+python test_supabase_integration.py
+```
+
+Expected output:
+```
+✅ PASS: connection
+✅ PASS: telemetry_table
+✅ PASS: predictions_table
+✅ PASS: insert
+✅ PASS: predictions
+✅ PASS: view
+
+🎉 All tests passed! Your Supabase integration is working.
+```
+
+### How It Works
+
+```
+Every hour:
+  etl_job.py fetches grid data
+  ↓
+  INSERT into grid_telemetry
+  ↓
+  Webhook detects INSERT
+  ↓
+  grid-forecaster Edge Function runs
+  ↓
+  Fetches last 72 hours of historical data
+  ↓
+  Data smoothing (removes outliers)
+  ↓
+  Ensemble forecasting: 70% Hugging Face AI + 30% Statistical
+  ↓
+  Generates 24-hour forecast for all 5 metrics
+  ↓
+  INSERT into grid_predictions (120 predictions)
+  ↓
+  actual_vs_predicted view updated
+  ↓
+  Data ready for analytics/Looker
+```
+
+### Forecasting Enhancements (v2)
+
+The improved forecasting system includes:
+
+**1. Extended Historical Context**
+- Uses 72 hours (3 days) of data instead of 24 hours
+- Captures weekly and daily patterns
+- Better seasonal awareness
+
+**2. Data Pre-processing**
+- Moving average smoothing (window of 3)
+- Removes outliers and noise
+- Improves model accuracy
+
+**3. Advanced Statistical Forecast**
+- Calculates trend, volatility, and seasonality
+- Uses sine wave for cyclical patterns
+- Adaptive noise based on historical variance
+
+**4. Ensemble Prediction Method**
+- Blends two approaches:
+  - **70%** Hugging Face Chronos AI model
+  - **30%** Statistical forecast
+- Robust fallback if AI API unavailable
+- Better generalisation across metrics
+
+**5. All 5 Metrics Forecasted**
+- Overall_Intensity (carbon intensity)
+- Wind generation %
+- Solar generation %
+- Gas generation %
+- Nuclear generation %
+
+**6. Accuracy Tracking**
+- `actual_vs_predicted` view compares forecasts to actual data
+- Calculates absolute and percentage errors
+- Tracks forecast quality over time
+
+### Querying Predictions and Accuracy
+
+**View latest predictions:**
+```sql
+SELECT * FROM grid_predictions 
+ORDER BY created_at DESC 
+LIMIT 10;
+```
+
+**Compare actual vs predicted:**
+```sql
+SELECT 
+  actual_timestamp,
+  prediction_timestamp,
+  fuel_type,
+  actual_value,
+  predicted_value,
+  prediction_error,
+  error_percentage
+FROM actual_vs_predicted 
+ORDER BY prediction_timestamp DESC 
+LIMIT 20;
+```
+
+**Forecast accuracy by metric (best-performing metrics first):**
+```sql
+SELECT 
+  fuel_type,
+  COUNT(*) as total_forecasts,
+  ROUND(AVG(ABS(prediction_error)), 2) AS avg_absolute_error,
+  ROUND(AVG(error_percentage), 2) AS avg_error_pct,
+  ROUND(STDDEV(error_percentage), 2) AS error_std_dev,
+  MIN(error_percentage) AS best_pct,
+  MAX(error_percentage) AS worst_pct
+FROM actual_vs_predicted
+WHERE actual_value IS NOT NULL
+GROUP BY fuel_type
+ORDER BY avg_error_pct ASC;
+```
+
+**Forecast performance over time (track improvement):**
+```sql
+SELECT 
+  DATE(prediction_timestamp) as forecast_date,
+  fuel_type,
+  COUNT(*) as predictions,
+  ROUND(AVG(error_percentage), 2) as daily_avg_error_pct,
+  ROUND(MAX(error_percentage), 2) as daily_worst_error_pct
+FROM actual_vs_predicted
+WHERE actual_value IS NOT NULL
+GROUP BY DATE(prediction_timestamp), fuel_type
+ORDER BY forecast_date DESC, fuel_type;
+```
+
+**Find poor predictions (>50% error) for investigation:**
+```sql
+SELECT 
+  actual_timestamp,
+  prediction_timestamp,
+  fuel_type,
+  actual_value,
+  predicted_value,
+  error_percentage
+FROM actual_vs_predicted
+WHERE error_percentage > 50 
+  AND actual_value IS NOT NULL
+ORDER BY error_percentage DESC, prediction_timestamp DESC;
+```
+
+**Weekly accuracy trends:**
+```sql
+SELECT 
+  DATE_TRUNC('week', prediction_timestamp) as week_start,
+  fuel_type,
+  COUNT(*) as total_predictions,
+  ROUND(AVG(error_percentage), 2) as weekly_avg_error_pct,
+  ROUND(STDDEV(error_percentage), 2) as weekly_std_dev
+FROM actual_vs_predicted
+WHERE actual_value IS NOT NULL
+GROUP BY DATE_TRUNC('week', prediction_timestamp), fuel_type
+ORDER BY week_start DESC, fuel_type;
+```
+
+### Files Added
+
+- `supabase/config.json` — Project configuration
+- `supabase/migrations/001_create_predictions_table.sql` — Database schema
+- `supabase/functions/grid-forecaster/index.ts` — Edge Function code
+- `test_supabase_integration.py` — Integration test
+- `test_edge_function_direct.py` — Function test
+- `docs/SUPABASE_SETUP.md` — Detailed setup guide
+
+### Troubleshooting
+
+**Predictions not appearing?**
+- Check webhook is enabled in Supabase Dashboard
+- Verify Edge Function is deployed and active
+- Check function logs: Dashboard → Edge Functions → grid-forecaster → Logs
+- Ensure telemetry data is being inserted correctly
+
+**HF_TOKEN errors?**
+- Ensure token is added to Edge Function secrets
+- Verify token has "read" scope from Hugging Face
+- Regenerate token if experiencing 401 errors
+
+**Slow predictions?**
+- First request after deployment loads AI model (~30-60s)
+- Subsequent requests are fast (<5s)
+- Statistical fallback is used if model unavailable
+
+**Poor forecast accuracy?**
+- Ensure at least 72 hours of historical data exists
+- Check data quality in `grid_telemetry` table
+- Review error percentages in `actual_vs_predicted` view
+- Adjust ensemble blend ratio (currently 70% HF / 30% statistical)
+
+### Cost
+
+| Component | Cost |
+|-----------|------|
+| Supabase (free tier) | £0 |
+| Edge Functions (free: 2M req/month) | £0 |
+| Hugging Face (free tier) | £0 |
+| **TOTAL** | **£0** |
+
+All completely free! ✅
 
 ---
 
@@ -231,10 +521,10 @@ SELECT * FROM grid_telemetry ORDER BY timestamp DESC LIMIT 5;
 
 | Component | Cost | Notes |
 |-----------|------|-------|
-| GitHub Actions | $0 | 2,000 free min/month |
-| Supabase DB | $0 | Free tier 500MB |
-| Pipeline usage | $0 | ~360 min/month (18%) |
-| **TOTAL** | **$0** | **Forever free** ✅ |
+| GitHub Actions | £0 | 2,000 free min/month |
+| Supabase DB | £0 | Free tier 500MB |
+| Pipeline usage | £0 | ~360 min/month (18%) |
+| **TOTAL** | **£0** | **Forever free** ✅ |
 
 ---
 
@@ -244,11 +534,11 @@ SELECT * FROM grid_telemetry ORDER BY timestamp DESC LIMIT 5;
 - Identify hours with high renewable generation
 - Plan energy-intensive tasks during green windows
 
-**Analyze trends:**
+**Analyse trends:**
 - Track wind and solar percentage over time
 - Compare regions and seasons
 
-**Optimize consumption:**
+**Optimise consumption:**
 - EV charging during low-carbon hours
 - Cloud compute job scheduling
 
@@ -257,7 +547,7 @@ SELECT * FROM grid_telemetry ORDER BY timestamp DESC LIMIT 5;
 ## 📁 Project Structure
 
 ```
-flight-data-pipeline/
+energy-stream-etl/
 ├── etl_job.py                  # Production ETL with logging + validation
 ├── requirements.txt            # Python dependencies
 ├── tests/
@@ -267,8 +557,14 @@ flight-data-pipeline/
 │       └── etl.yml             # GitHub Actions schedule
 ├── docs/
 │   └── GITHUB_ACTIONS_SETUP.md # Detailed setup guide
-├── GITHUB_ACTIONS_SETUP.md     # Quick start
-└── README.md                   # This file
+├── README.md                   # This file
+└── supabase/
+    ├── config.json             # Project configuration
+    ├── migrations/
+    │   └── 001_create_predictions_table.sql
+    └── functions/
+        └── grid-forecaster/
+            └── index.ts        # Edge Function code
 ```
 
 ---
@@ -291,9 +587,9 @@ flight-data-pipeline/
 
 ## 🚀 Quick Start (Local)
 
-1) Clone and install deps
+1) Clone and install dependencies
 ```bash
-cd flight-data-pipeline
+cd energy-stream-etl
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

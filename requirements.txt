@@ -4,3 +4,4 @@ python-dotenv
 prefect
 pytest
 pytest-cov
+supabase
