@@ -1,98 +1,50 @@
+
 # ⚡ National Grid Telemetry Pipeline
 
-An automated data engineering pipeline that monitors National Grid carbon intensity in real-time. It ingests live generation mix (Solar, Wind, Gas, Nuclear) and archives telemetry for historical analysis.
+An automated data engineering pipeline for monitoring and analysing National Grid carbon intensity in real time. Ingests live generation mix (solar, wind, gas, nuclear) and archives telemetry for historical analysis.
 
-**Architecture:**
-- **Ingestion (GitHub Actions)**: Hourly cron hits the National Grid ESO API (free)
-- **Storage (PostgreSQL/Supabase)**: Validated telemetry stored as time-series
-- **Analytics (SQL/Looker)**: Dashboard and views for renewable trends
+## Features
+- Automated ETL: Hourly GitHub Actions job (free)
+- Structured logging with timestamps
+- Exponential backoff for API failures
+- Data quality checks (null, type, range)
+- Duplicate prevention (hourly, normalised timestamps)
+- ETL metadata tracking
+- Unit tested (pytest)
+- Postgres-first: Schema for Supabase or any managed Postgres
+- Predictive analytics: 24-hour and 7-day forecasting
+- Accuracy tracking: Real vs forecasted comparisons
 
----
+## Tech Stack
+- Python 3.9+
+- PostgreSQL (via psycopg v3)
+- Requests (National Grid ESO API)
+- GitHub Actions (hourly schedule)
+- Supabase (database, Edge Functions)
+- Hugging Face (AI forecasting)
 
-## 🌟 Features
-- ✅ **Automated ETL**: Hourly GitHub Actions job - completely free
-- ✅ **Production logging**: Structured logging with timestamps
-- ✅ **Retry logic**: Exponential backoff for API failures (3 retries)
-- ✅ **Data quality checks**: Null validation, type checking, value ranges
-- ✅ **Duplicate prevention**: Automatic timestamp-based deduplication
-- ✅ **ETL metadata tracking**: Run history with success/failure status
-- ✅ **Unit tested**: 12 pytest tests covering core functions
-- ✅ **Postgres-first**: Schema ready for Supabase or any managed Postgres
-- ✅ **Predictive analytics**: 24-hour forecasting with ensemble methods
-- ✅ **Accuracy tracking**: Real vs. forecasted comparisons
+## Quick Start
+1. Clone and install dependencies
+   ```bash
+   git clone <your-repo-url>
+   cd energy-stream-etl
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. Set environment
+   Create a `.env` file:
+   ```env
+   DATABASE_URL=postgresql://user:password@host:port/dbname
+   ```
+3. Create the tables (see schema below)
+4. Run the ETL once
+   ```bash
+   python etl_job.py
+   ```
+5. Deploy to GitHub Actions for free hourly runs (add `DATABASE_URL` as a secret)
 
----
-
-## 🛠️ Tech Stack
-- **Python 3.9+** - Core runtime
-- **PostgreSQL** via `psycopg` v3 - Time-series database
-- **Requests** - National Grid ESO Carbon Intensity API
-- **GitHub Actions** - Free hourly scheduling
-- **pytest** - Unit testing
-- **Supabase** - Database and Edge Functions
-- **Hugging Face** - AI forecasting models
-
----
-
-## 🚀 Quick Start
-
-### 1. Local Development
-```bash
-git clone https://github.com/Jfor12/flight-data-pipeline.git
-cd flight-data-pipeline
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# Create .env file
-echo "DATABASE_URL=postgresql://user:password@host:port/dbname" > .env
-
-# Run ETL once
-python etl_job.py
-```
-
-### 2. Deploy to GitHub Actions (Free!)
-
-**Push code:**
-```bash
-git add .
-git commit -m "Add Grid ETL pipeline"
-git push origin main
-```
-
-**Add DATABASE_URL secret:**
-1. GitHub repo → Settings → Secrets and variables → Actions
-2. Click: New repository secret
-3. Name: `DATABASE_URL`
-4. Value: `postgresql://user:password@host:port/dbname`
-5. Save
-
-**That's it!** ✅ Your pipeline runs hourly starting next :00 UTC
-
----
-
-## 📊 How It Works
-
-### ETL Pipeline (`etl_job.py`)
-
-**Every hour:**
-- Calls `https://api.carbonintensity.org.uk/intensity` for carbon intensity
-- Calls `https://api.carbonintensity.org.uk/generation` for fuel mix
-- Validates data (null checks, type checking, range validation)
-- **Checks for duplicates** - skips if timestamp already exists
-- Stores to PostgreSQL `grid_telemetry` table
-- Logs execution to `etl_runs` table
-
-**Production features:**
-- Structured logging to file + console
-- Exponential backoff retry (3 attempts, 2-8s delays)
-- Data quality validation (0-1000 gCO2/kWh, 0-100% fuel percentages)
-- **Duplicate prevention** - timestamp-based deduplication before insert
-- Automatic table creation
-- Transactional database writes with rollback
-
-### Database Schema
-
+## Database Schema
 ```sql
 CREATE TABLE IF NOT EXISTS grid_telemetry (
     id BIGSERIAL PRIMARY KEY,
@@ -103,7 +55,6 @@ CREATE TABLE IF NOT EXISTS grid_telemetry (
     fuel_wind_perc DOUBLE PRECISION,
     fuel_solar_perc DOUBLE PRECISION
 );
-
 CREATE TABLE IF NOT EXISTS etl_runs (
     id BIGSERIAL PRIMARY KEY,
     run_timestamp TIMESTAMPTZ DEFAULT NOW(),
@@ -114,476 +65,60 @@ CREATE TABLE IF NOT EXISTS etl_runs (
 );
 ```
 
----
+## Analytics (SQL Views)
+Time-windowed views for easier visualisation and analysis:
+- `grid_predictions_24h` — Last 24 hours of grid predictions
+- `grid_predictions_7d` — Last 7 days of grid predictions
+- `actual_vs_predicted_24h` — Last 24 hours of actual vs predicted
+- `actual_vs_predicted_7d` — Last 7 days of actual vs predicted
+- `grid_telemetry_7d` — Last 7 days of grid telemetry
 
-## 🔮 Supabase Predictive Analytics (Version 2)
+**Example queries:**
+```sql
+SELECT * FROM grid_predictions_24h ORDER BY prediction_timestamp DESC LIMIT 20;
+SELECT * FROM grid_predictions_7d ORDER BY prediction_timestamp DESC LIMIT 20;
+SELECT * FROM actual_vs_predicted_24h ORDER BY actual_timestamp DESC LIMIT 20;
+SELECT * FROM actual_vs_predicted_7d ORDER BY actual_timestamp DESC LIMIT 20;
+SELECT * FROM grid_telemetry_7d ORDER BY timestamp DESC LIMIT 20;
+```
 
-Your pipeline now includes **automated forecasting** via Supabase Edge Functions and Hugging Face AI!
+## Supabase Edge Function (Forecasting)
+- Automated forecasting using Hugging Face AI and statistical models
+- Normalises all prediction timestamps to the top of the hour
+- Stores 24-hour forecasts for all metrics
 
-### What's New
+## Environment Variables
+- `DATABASE_URL` — Postgres connection string (required)
+- `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` — for Supabase integration
+- `HF_TOKEN` — Hugging Face API token
 
-**Forecasting Loop:**
-- Database webhook triggers on every new ETL insert
-- Edge Function pulls last 24 hours of wind data
-- Generates 6-hour wind generation predictions
-- Stores forecasts in `grid_predictions` table
-- Compare actual vs predicted in `actual_vs_predicted` view
-
-### Setup Instructions
-
-#### Step 1: Create Supabase Project
-1. Go to [supabase.com](https://supabase.com) and sign up (free)
-2. Create a new project
-3. Save your **Project Ref** and **Project URL**
-
-#### Step 2: Get API Keys
-1. Supabase Dashboard → **Settings** → **API**
-2. Copy:
-   - `SUPABASE_URL` (Project URL)
-   - `SUPABASE_ANON_KEY` (Anon key)
-   - `SUPABASE_SERVICE_ROLE_KEY` (Service role key)
-
-#### Step 3: Configure Environment
-Add to your `.env` file:
+## Testing
+Run unit tests:
 ```bash
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-HF_TOKEN=your_hugging_face_token
+pytest tests/test_etl.py -v
 ```
 
-#### Step 4: Create Database Schema
-1. Go to Supabase Dashboard → **SQL Editor**
-2. Create new query
-3. Paste contents of `supabase/migrations/001_create_predictions_table.sql`
-4. Run query
-
-This creates:
-- `grid_predictions` table for forecasts
-- `actual_vs_predicted` view for comparison
-
-#### Step 5: Get Hugging Face Token
-1. Go to [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
-2. Create new token (scope: "read")
-3. Add to `.env` as `HF_TOKEN`
-
-#### Step 6: Deploy Edge Function
-1. Go to Supabase Dashboard → **Edge Functions**
-2. Click **Create a new function**
-3. Name: `grid-forecaster`
-4. Copy code from `supabase/functions/grid-forecaster/index.ts`
-5. Paste and **Deploy**
-
-#### Step 7: Add Secret to Edge Function
-1. Go to **Edge Functions** → **grid-forecaster** → **Settings**
-2. Add secret:
-   - Key: `HF_TOKEN`
-   - Value: `hf_your_token_here`
-
-#### Step 8: Create Database Webhook
-1. Go to Supabase Dashboard → **Database** → **Webhooks**
-2. Click **Create a new webhook**
-3. Configure:
-   - **Name:** `run_forecast_on_insert`
-   - **Table:** `grid_telemetry`
-   - **Events:** `Insert`
-   - **Type:** `Supabase Edge Functions`
-   - **Function:** `grid-forecaster`
-4. Click **Save**
-
-#### Step 9: Test the Integration
-```bash
-python test_supabase_integration.py
-```
-
-Expected output:
-```
-✅ PASS: connection
-✅ PASS: telemetry_table
-✅ PASS: predictions_table
-✅ PASS: insert
-✅ PASS: predictions
-✅ PASS: view
-
-🎉 All tests passed! Your Supabase integration is working.
-```
-
-### How It Works
-
-```
-Every hour:
-  etl_job.py fetches grid data
-  ↓
-  INSERT into grid_telemetry
-  ↓
-  Webhook detects INSERT
-  ↓
-  grid-forecaster Edge Function runs
-  ↓
-  Fetches last 72 hours of historical data
-  ↓
-  Data smoothing (removes outliers)
-  ↓
-  Ensemble forecasting: 70% Hugging Face AI + 30% Statistical
-  ↓
-  Generates 24-hour forecast for all 5 metrics
-  ↓
-  INSERT into grid_predictions (120 predictions)
-  ↓
-  actual_vs_predicted view updated
-  ↓
-  Data ready for analytics/Looker
-```
-
-### Forecasting Enhancements (v2)
-
-The improved forecasting system includes:
-
-**1. Extended Historical Context**
-- Uses 72 hours (3 days) of data instead of 24 hours
-- Captures weekly and daily patterns
-- Better seasonal awareness
-
-**2. Data Pre-processing**
-- Moving average smoothing (window of 3)
-- Removes outliers and noise
-- Improves model accuracy
-
-**3. Advanced Statistical Forecast**
-- Calculates trend, volatility, and seasonality
-- Uses sine wave for cyclical patterns
-- Adaptive noise based on historical variance
-
-**4. Ensemble Prediction Method**
-- Blends two approaches:
-  - **70%** Hugging Face Chronos AI model
-  - **30%** Statistical forecast
-- Robust fallback if AI API unavailable
-- Better generalisation across metrics
-
-**5. All 5 Metrics Forecasted**
-- Overall_Intensity (carbon intensity)
-- Wind generation %
-- Solar generation %
-- Gas generation %
-- Nuclear generation %
-
-**6. Accuracy Tracking**
-- `actual_vs_predicted` view compares forecasts to actual data
-- Calculates absolute and percentage errors
-- Tracks forecast quality over time
-
-### Querying Predictions and Accuracy
-
-**View latest predictions:**
-```sql
-SELECT * FROM grid_predictions 
-ORDER BY created_at DESC 
-LIMIT 10;
-```
-
-**Compare actual vs predicted:**
-```sql
-SELECT 
-  actual_timestamp,
-  prediction_timestamp,
-  fuel_type,
-  actual_value,
-  predicted_value,
-  prediction_error,
-  error_percentage
-FROM actual_vs_predicted 
-ORDER BY prediction_timestamp DESC 
-LIMIT 20;
-```
-
-**Forecast accuracy by metric (best-performing metrics first):**
-```sql
-SELECT 
-  fuel_type,
-  COUNT(*) as total_forecasts,
-  ROUND(AVG(ABS(prediction_error)), 2) AS avg_absolute_error,
-  ROUND(AVG(error_percentage), 2) AS avg_error_pct,
-  ROUND(STDDEV(error_percentage), 2) AS error_std_dev,
-  MIN(error_percentage) AS best_pct,
-  MAX(error_percentage) AS worst_pct
-FROM actual_vs_predicted
-WHERE actual_value IS NOT NULL
-GROUP BY fuel_type
-ORDER BY avg_error_pct ASC;
-```
-
-**Forecast performance over time (track improvement):**
-```sql
-SELECT 
-  DATE(prediction_timestamp) as forecast_date,
-  fuel_type,
-  COUNT(*) as predictions,
-  ROUND(AVG(error_percentage), 2) as daily_avg_error_pct,
-  ROUND(MAX(error_percentage), 2) as daily_worst_error_pct
-FROM actual_vs_predicted
-WHERE actual_value IS NOT NULL
-GROUP BY DATE(prediction_timestamp), fuel_type
-ORDER BY forecast_date DESC, fuel_type;
-```
-
-**Find poor predictions (>50% error) for investigation:**
-```sql
-SELECT 
-  actual_timestamp,
-  prediction_timestamp,
-  fuel_type,
-  actual_value,
-  predicted_value,
-  error_percentage
-FROM actual_vs_predicted
-WHERE error_percentage > 50 
-  AND actual_value IS NOT NULL
-ORDER BY error_percentage DESC, prediction_timestamp DESC;
-```
-
-**Weekly accuracy trends:**
-```sql
-SELECT 
-  DATE_TRUNC('week', prediction_timestamp) as week_start,
-  fuel_type,
-  COUNT(*) as total_predictions,
-  ROUND(AVG(error_percentage), 2) as weekly_avg_error_pct,
-  ROUND(STDDEV(error_percentage), 2) as weekly_std_dev
-FROM actual_vs_predicted
-WHERE actual_value IS NOT NULL
-GROUP BY DATE_TRUNC('week', prediction_timestamp), fuel_type
-ORDER BY week_start DESC, fuel_type;
-```
-
-### Files Added
-
-- `supabase/config.json` — Project configuration
-- `supabase/migrations/001_create_predictions_table.sql` — Database schema
-- `supabase/functions/grid-forecaster/index.ts` — Edge Function code
-- `test_supabase_integration.py` — Integration test
-- `test_edge_function_direct.py` — Function test
-- `docs/SUPABASE_SETUP.md` — Detailed setup guide
-
-### Troubleshooting
-
-**Predictions not appearing?**
-- Check webhook is enabled in Supabase Dashboard
-- Verify Edge Function is deployed and active
-- Check function logs: Dashboard → Edge Functions → grid-forecaster → Logs
-- Ensure telemetry data is being inserted correctly
-
-**HF_TOKEN errors?**
-- Ensure token is added to Edge Function secrets
-- Verify token has "read" scope from Hugging Face
-- Regenerate token if experiencing 401 errors
-
-**Slow predictions?**
-- First request after deployment loads AI model (~30-60s)
-- Subsequent requests are fast (<5s)
-- Statistical fallback is used if model unavailable
-
-**Poor forecast accuracy?**
-- Ensure at least 72 hours of historical data exists
-- Check data quality in `grid_telemetry` table
-- Review error percentages in `actual_vs_predicted` view
-- Adjust ensemble blend ratio (currently 70% HF / 30% statistical)
-
-### Cost
-
-| Component | Cost |
-|-----------|------|
-| Supabase (free tier) | £0 |
-| Edge Functions (free: 2M req/month) | £0 |
-| Hugging Face (free tier) | £0 |
-| **TOTAL** | **£0** |
-
-All completely free! ✅
-
----
-
-## 🧪 Testing
-
-Run unit tests locally:
-```bash
-PYTHONPATH=. pytest tests/test_etl.py -v
-```
-
-**Test Coverage:**
-- ✅ Data validation (null, type, range checks)
-- ✅ ISO8601 timestamp parsing
-- ✅ Integration test for full validation pipeline
-- ✅ Error handling for invalid data
-- ✅ Duplicate prevention logic
-
-**Example output:**
-```
-tests/test_etl.py::TestDataValidation::test_validate_intensity_valid PASSED
-tests/test_etl.py::TestDataValidation::test_validate_intensity_invalid PASSED
-tests/test_etl.py::TestDataValidation::test_validate_fuel_percentage_valid PASSED
-tests/test_etl.py::TestDateParsing::test_parse_iso8601_valid PASSED
-tests/test_etl.py::TestIntegration::test_full_validation_pipeline PASSED
-tests/test_etl.py::TestDuplicatePrevention::test_duplicate_detection_logic PASSED
-
-============================== 12 passed in 1.27s ===============================
-```
-
-Run with coverage:
-```bash
-pytest tests/ --cov=etl_job --cov-report=html
-```
-
----
-
-## 🔁 GitHub Actions Workflow
-
-Workflow file: `.github/workflows/etl.yml`
-
-**What it does:**
-- Runs hourly at :00 UTC (configurable with cron)
-- Clones your code
-- Installs dependencies (cached)
-- Runs `python etl_job.py`
-- Injects `DATABASE_URL` from secrets
-- Uploads logs on failure (30-day retention)
-
-**Monitor runs:**
-- Repository → Actions tab
-- See all runs with timestamps and status
-- Click any run to view full logs
-- Manual trigger available: "Run workflow" button
-
----
-
-## 📈 Monitoring Your Pipeline
-
-### Query Success Rate
-```sql
-SELECT 
-  DATE(run_timestamp) AS day,
-  COUNT(*) AS total_runs,
-  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful,
-  ROUND(100.0 * SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) / COUNT(*), 2) AS success_pct
-FROM etl_runs
-WHERE run_timestamp >= NOW() - INTERVAL '7 days'
-GROUP BY 1
-ORDER BY 1 DESC;
-```
-
-### View Recent Runs
-```sql
-SELECT run_timestamp, status, rows_inserted, execution_time_ms, error_message
-FROM etl_runs
-ORDER BY run_timestamp DESC
-LIMIT 10;
-```
-
-### Check Data
-```sql
-SELECT COUNT(*) FROM grid_telemetry;
-SELECT * FROM grid_telemetry ORDER BY timestamp DESC LIMIT 5;
-```
-
----
-
-## 🔑 Environment Variables
-- `DATABASE_URL` — Required. Postgres connection string: `postgresql://user:password@host:port/dbname`
-  - **Local**: Set in `.env` file
-  - **GitHub Actions**: Set as repository secret
-
----
-
-## 🧰 Troubleshooting
-
-**Workflow not running:**
-- Wait until next hour (:00 UTC)
-- Or manually trigger: Actions tab → Run workflow
-- Check workflow file exists: `.github/workflows/etl.yml` ✓
-
-**Failed run:**
-- Click failed run in Actions tab
-- View logs to see error details
-- Common issue: `DATABASE_URL` secret not set
-
-**No data in database:**
-- Verify `DATABASE_URL` is correct: `psql "$DATABASE_URL"`
-- Test locally: `python etl_job.py`
-- Check `etl_runs` table for error messages
-
-**API failures:**
-- Logs show retry attempts (exponential backoff)
-- Usually transient - will succeed on next hourly run
-- Check `etl_pipeline.log` for details
-
----
-
-## 💰 Cost
-
-| Component | Cost | Notes |
-|-----------|------|-------|
-| GitHub Actions | £0 | 2,000 free min/month |
-| Supabase DB | £0 | Free tier 500MB |
-| Pipeline usage | £0 | ~360 min/month (18%) |
-| **TOTAL** | **£0** | **Forever free** ✅ |
-
----
-
-## 🎯 Use Cases
-
-**Monitor grid cleanliness:**
-- Identify hours with high renewable generation
-- Plan energy-intensive tasks during green windows
-
-**Analyse trends:**
-- Track wind and solar percentage over time
-- Compare regions and seasons
-
-**Optimise consumption:**
-- EV charging during low-carbon hours
-- Cloud compute job scheduling
-
----
-
-## 📁 Project Structure
-
+## Troubleshooting
+- Check `etl_pipeline.log` for errors
+- Ensure all environment variables are set
+- For Supabase/Edge Function issues, check Supabase logs and secrets
+
+## Project Structure
 ```
 energy-stream-etl/
-├── etl_job.py                  # Production ETL with logging + validation
-├── requirements.txt            # Python dependencies
+├── etl_job.py
+├── requirements.txt
 ├── tests/
-│   └── test_etl.py             # 12 unit tests
+│   └── test_etl.py
 ├── .github/
 │   └── workflows/
-│       └── etl.yml             # GitHub Actions schedule
+│       └── etl.yml
 ├── docs/
-│   └── GITHUB_ACTIONS_SETUP.md # Detailed setup guide
-├── README.md                   # This file
-└── supabase/
-    ├── config.json             # Project configuration
-    ├── migrations/
-    │   └── 001_create_predictions_table.sql
-    └── functions/
-        └── grid-forecaster/
-            └── index.ts        # Edge Function code
-```
+│   └── GITHUB_ACTIONS_SETUP.md
+├── README.md
 
----
-
-## 🚀 Next Steps
-
-1. ✅ Deploy to GitHub (push code + add secret)
-2. ✅ Wait for first run (next :00 UTC)
-3. ✅ Check Actions tab for logs
-4. ✅ Query database to verify data
-5. ✅ Set up Looker dashboard
-6. ✅ Monitor with SQL queries
-
----
-
-## 👤 Built by
-**Jfor12** — [🐙 GitHub](https://github.com/Jfor12) | [💼 LinkedIn](https://linkedin.com/in/jacopofornesi)
-
----
+## Author
+Jacopo Fornesi — [GitHub](https://github.com/Jfor12) | [LinkedIn](https://linkedin.com/in/jacopofornesi)
 
 ## 🚀 Quick Start (Local)
 
@@ -684,7 +219,41 @@ Deploy to Prefect Cloud:
 prefect deploy prefect_flow.py:grid_etl_flow -n "hourly-carbon-etl" -p default
 ```
 
+
 ### Analytics (SQL views)
+
+#### Time-windowed Views for Visualization
+
+To make visualisation and analysis easier, the following SQL views are available:
+
+- `grid_predictions_24h` — Last 24 hours of grid predictions
+- `grid_predictions_7d` — Last 7 days of grid predictions
+- `actual_vs_predicted_24h` — Last 24 hours of actual vs predicted data
+- `actual_vs_predicted_7d` — Last 7 days of actual vs predicted data
+- `grid_telemetry_7d` — Last 7 days of grid telemetry data
+
+These views are automatically updated and can be queried directly for recent trends and historical analysis.
+
+**Example queries:**
+
+```sql
+-- Last 24 hours of grid predictions
+SELECT * FROM grid_predictions_24h ORDER BY prediction_timestamp DESC LIMIT 20;
+
+-- Last 7 days of grid predictions
+SELECT * FROM grid_predictions_7d ORDER BY prediction_timestamp DESC LIMIT 20;
+
+-- Last 24 hours of actual vs predicted
+SELECT * FROM actual_vs_predicted_24h ORDER BY actual_timestamp DESC LIMIT 20;
+
+-- Last 7 days of actual vs predicted
+SELECT * FROM actual_vs_predicted_7d ORDER BY actual_timestamp DESC LIMIT 20;
+
+-- Last 7 days of grid telemetry
+SELECT * FROM grid_telemetry_7d ORDER BY timestamp DESC LIMIT 20;
+```
+
+#### Daily Cleanliness View
 Add a daily cleanliness view for trend analysis:
 ```sql
 CREATE OR REPLACE VIEW view_daily_cleanliness AS
