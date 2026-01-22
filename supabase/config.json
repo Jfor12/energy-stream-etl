@@ -1,0 +1,12 @@
+{
+  "project_id": "unrhldictkhzmbtyiuti",
+  "db": {
+    "port": 5432
+  },
+  "functions": [
+    {
+      "slug": "grid-forecaster",
+      "description": "Forecasting loop for grid telemetry data"
+    }
+  ]
+}
