@@ -12,7 +12,8 @@ flowchart TD
     G --> H[AI Model]
     H --> I[Predictions]
     
-    D & I --> V[SQL Analytics Views]
+    D --> V[SQL Analytics Views]
+    I --> V
     V --> F[Looker Dashboard]
 
     style G fill:#3ecf8e,color:#fff
