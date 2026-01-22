@@ -1,89 +1,51 @@
 # National Grid Telemetry Pipeline
+Production-grade ETL & AI Analytics tracking UK grid carbon intensity and generation mix.
 
-Production-style ETL + analytics views for a dashboard tracking UK grid carbon intensity and generation mix, with optional AI-driven forecasts via Supabase.
-
-## What I Built
-
-- Python ETL (etl_job.py) that ingests National Grid ESO data and stores hourly telemetry in Postgres
-- Reliability + data quality: retries with exponential backoff, validation, structured logging
-- Operational metadata: etl_runs records status, rows inserted, runtime, and errors
-- Dashboard-ready views to compare actuals vs forecasts and measure prediction error (24h)
-- Automation: GitHub Actions schedule (every 30 minutes)
-
-## Dashboard
-
-- Live dashboard: https://lookerstudio.google.com/reporting/17d54e78-beda-4a69-b965-c3a95cf9848f
-
-## Architecture
-
+## 🚀 The High-Level Architecture
 ```mermaid
 flowchart TD
-  A[GitHub Actions schedule\n(every 30 min)] --> B[etl_job.py\nFetch + validate + normalize]
-  B --> C[(Postgres / Supabase)]
-  C --> D[grid_telemetry]
-  D --> E[Views for dashboard\nactual_vs_predicted_24h\nerror_rate_24h]
-  E --> F[Dashboard]
+    A[GitHub Actions] --> B[Python ETL]
+    B --> C[(Supabase DB)]
+    
+    C --> D[Telemetry]
+    D -->|Webhook| G[Edge Function]
+    G --> H[AI Model]
+    H --> I[Predictions]
+    
+    D & I --> V[SQL Analytics Views]
+    V --> F[Looker Dashboard]
 
-  D -->|optional webhook| G[Supabase Edge Function\nforecasting]
-  G --> H[Hugging Face Chronos\n(time-series model)]
-  H --> I[grid_predictions]
-  I --> E
+    style G fill:#3ecf8e,color:#fff
+    style H fill:#ffbd45,color:#000
+    style C fill:#333,color:#fff
 ```
 
-## Supabase + AI Forecasting (Optional)
+## ✨ Key Engineering Highlights
+### 1. Production-Ready ETL
+**Resiliency**: Implemented Python decorators for exponential backoff and retries to handle National Grid API rate limits.
 
-If you enable forecasting:
+**Observability**: Every run is logged in an etl_runs table, tracking execution time, row counts, and error stack traces for fast debugging.
 
-1. The ETL inserts telemetry into grid_telemetry
-2. A Supabase Database Webhook triggers an Edge Function
-3. The function calls an AI time-series model (Hugging Face Chronos)
-4. Forecasts are upserted into grid_predictions
-5. The dashboard queries views like actual_vs_predicted_24h and error_rate_24h
+**Automation**: Fully automated via GitHub Actions, running every 30 minutes with zero manual intervention.
 
-Recommended secrets (Supabase): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, HF_TOKEN.
+### 2. Advanced SQL & Data Integrity
+**Dynamic Data Completion**: Created a SQL analytics layer that automatically calculates an "Other" fuel category. This ensures the generation mix always sums to exactly 100%, even when the API data is incomplete.
 
-## Run Locally
+**Performance Optimization**: Leveraged Postgres Expression Indexes and composite keys to ensure 24-hour dashboard views remain responsive under heavy data loads.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+**Time-Series Join**: Built complex views to align real-time telemetry with AI-generated forecasts, enabling instant "Actual vs. Predicted" error analysis.
 
-Create .env:
+### 3. AI-Driven Forecasting
+**Model**: Integrated Hugging Face Chronos (a state-of-the-art time-series model).
 
-```env
-DATABASE_URL=postgresql://user:password@host:port/dbname
-```
+**Serverless Flow**: Triggered via Supabase Webhooks and Edge Functions, creating a completely event-driven forecasting pipeline.
 
-Run:
+## 📊 Dashboard
+**Live Reporting**: View the [Looker Studio Dashboard](https://lookerstudio.google.com/reporting/17d54e78-beda-4a69-b965-c3a95cf9848f)
 
-```bash
-python etl_job.py
-```
-
-## Tests
-
-```bash
-pytest tests/test_etl.py -v
-```
-
-## Repo Structure
-
-```text
-energy-stream-etl/
-  etl_job.py
-  requirements.txt
-  tests/
-    test_etl.py
-  .github/
-    workflows/
-      etl.yml
-```
-
-## Author
-
-Jacopo Fornesi
-
-- GitHub: https://github.com/Jfor12
-- LinkedIn: https://linkedin.com/in/jacopofornesi
+## 🛠️ Tech Stack
+- **Language**: Python (pandas, psycopg2, pytest)
+- **Database**: PostgreSQL (Supabase)
+- **Infrastructure**: GitHub Actions, Supabase Edge Functions
+- **AI/ML**: Hugging Face Chronos
+- **Visualization**: Looker Studio
