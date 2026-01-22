@@ -32,7 +32,7 @@ flowchart TD
 ### 2. Advanced SQL & Data Integrity
 **Dynamic Data Completion**: Created a SQL analytics layer that automatically calculates an "Other" fuel category. This ensures the generation mix always sums to exactly 100%, even when the API data is incomplete.
 
-**Performance Optimization**: Leveraged Postgres Expression Indexes and composite keys to ensure 24-hour dashboard views remain responsive under heavy data loads.
+**Performance Optimisation**: Leveraged Postgres Expression Indexes and composite keys to ensure 24-hour dashboard views remain responsive under heavy data loads.
 
 **Time-Series Join**: Built complex views to align real-time telemetry with AI-generated forecasts, enabling instant "Actual vs. Predicted" error analysis.
 
@@ -42,11 +42,11 @@ flowchart TD
 **Serverless Flow**: Triggered via Supabase Webhooks and Edge Functions, creating a completely event-driven forecasting pipeline.
 
 ## 📊 Dashboard
-**Live Reporting**: View the [Looker Studio Dashboard](https://lookerstudio.google.com/reporting/17d54e78-beda-4a69-b965-c3a95cf9848f)
+**Live Reporting**: View the [Looker Studio Dashboard](https://lookerstudio.google.com/reporting/87673644-a8f6-44f0-b47e-faf9a56704a9)
 
 ## 🛠️ Tech Stack
 - **Language**: Python (pandas, psycopg2, pytest)
 - **Database**: PostgreSQL (Supabase)
 - **Infrastructure**: GitHub Actions, Supabase Edge Functions
 - **AI/ML**: Hugging Face Chronos
-- **Visualization**: Looker Studio
+- **Visualisation**: Looker Studio
