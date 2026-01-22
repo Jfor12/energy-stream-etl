@@ -106,6 +106,8 @@ def fetch_intensity():
     intensity_value = intensity_obj.get("actual") or intensity_obj.get("forecast")
     from_time = _parse_iso8601(record.get("from")) or datetime.now(timezone.utc)
     to_time = _parse_iso8601(record.get("to"))
+    # Normalize from_time to the top of the hour (e.g., 10:30 -> 10:00)
+    from_time = from_time.replace(minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
     logger.info(f"Fetched intensity: {intensity_value} gCO2/kWh at {from_time}")
     return intensity_value, from_time, to_time
 
