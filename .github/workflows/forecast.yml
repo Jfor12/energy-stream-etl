@@ -1,0 +1,45 @@
+name: Grid Forecast
+
+on:
+  schedule:
+    - cron: '37 */3 * * *'  # every 3 hours, after that hour's ETL run
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Forecast but don't store anything"
+        type: boolean
+        default: false
+
+concurrency:
+  group: grid-forecast
+  cancel-in-progress: false
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-forecast.txt
+
+      - name: Install (CPU-only PyTorch, then Chronos)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-forecast.txt
+
+      - name: Cache the model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-chronos-bolt-small
+
+      - name: Forecast the next 24 hours
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python forecast.py $DRY_RUN
