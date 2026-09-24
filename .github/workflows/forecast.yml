@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   forecast:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -33,7 +33,7 @@ jobs:
           pip install -r requirements-forecast.txt
 
       - name: Cache the model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/huggingface
           key: hf-chronos-bolt-small
