@@ -1,0 +1,3 @@
+# torch is installed first from the CPU-only index (see .github/workflows/forecast.yml)
+-r requirements.txt
+chronos-forecasting==2.3.2
