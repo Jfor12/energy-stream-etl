@@ -1,0 +1,49 @@
+name: Dashboard
+
+on:
+  push:
+    branches: [main]
+    paths: ['dashboard/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Write the Supabase settings into config.js
+        env:
+          # Repository variables (Settings → Secrets and variables → Actions → Variables).
+          # The anon key is Supabase's public, read-only key: it can only read the dashboard_* views.
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          config = {"supabaseUrl": os.environ["SUPABASE_URL"].strip(), "supabaseKey": os.environ["SUPABASE_ANON_KEY"].strip()}
+          if not all(config.values()):
+              print("::warning::SUPABASE_URL or SUPABASE_ANON_KEY is not set; the dashboard will show a setup message.")
+          with open("dashboard/config.js", "w") as f:
+              f.write(f"window.DASHBOARD_CONFIG = {json.dumps(config)};\n")
+          PY
+          rm -rf dashboard/tests dashboard/package.json
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dashboard
+      - id: deployment
+        uses: actions/deploy-pages@v5

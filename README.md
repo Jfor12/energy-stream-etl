@@ -2,7 +2,7 @@
 
 An hourly pipeline that records how clean Great Britain's electricity is (carbon intensity in gCO₂/kWh) and where it comes from (the generation mix). It also forecasts the next 24 hours with Amazon's Chronos-Bolt model and scores every forecast against what actually happened.
 
-**Dashboard:** [Looker Studio report](https://lookerstudio.google.com/reporting/87673644-a8f6-44f0-b47e-faf9a56704a9)
+**Dashboard:** [jfor12.github.io/energy-stream-etl](https://jfor12.github.io/energy-stream-etl/)
 
 ```mermaid
 flowchart LR
@@ -12,7 +12,7 @@ flowchart LR
     F --> P[(grid_predictions)]
     T --> V[SQL views]
     P --> V
-    V --> L[Looker Studio]
+    V -->|read-only REST API| D[Dashboard<br>GitHub Pages]
 ```
 
 ## How it works
@@ -56,7 +56,31 @@ All schema changes live in `sql/schema.sql`. They are idempotent, applied at the
 | `etl_runs` | One row per run of either job. |
 | `grid_mix_hourly` | The hourly mix with renewables, fossil and a coverage check. |
 | `forecast_accuracy`, `forecast_skill` | Forecast evaluation, as above. |
-| `grid_predictions_extended`, `actual_vs_predicted`, `actual_vs_predicted_24h`, `error_rate_24h`, `latest_reading`, `grid_telemetry_wide_last_24_hours` | The views the Looker dashboard was first built on (`sql/dashboard_views.sql`). They use the newest real forecast for each hour and add an "Other" share (100% minus the four forecast fuels). |
+| `dashboard_hourly`, `dashboard_daily`, `dashboard_forecast`, `dashboard_forecast_skill`, `dashboard_pipeline` | What the dashboard reads (`sql/public_api.sql`), and the only things Supabase's public key can read. |
+| `grid_predictions_extended`, `actual_vs_predicted`, `actual_vs_predicted_24h`, `error_rate_24h`, `latest_reading`, `grid_telemetry_wide_last_24_hours` | The views the earlier Looker Studio report used (`sql/dashboard_views.sql`), kept working for now. |
+
+## Dashboard
+
+`dashboard/` is a static page (plain HTML, CSS and JavaScript, with no build step) published to GitHub Pages by `.github/workflows/pages.yml`. It reads live data in the browser from Supabase's REST API, using the public anon key. The key can only read the `dashboard_*` views. `sql/public_api.sql` closes everything else to it, including the raw tables, `etl_runs` with its error messages, and the older views, and switches on row-level security.
+
+The page shows:
+- carbon intensity now, compared with the same hour yesterday;
+- wind, solar, low-carbon and gas shares;
+- intensity over 24 hours to 12 months, with the latest 24-hour forecast and its 80% range;
+- the generation mix;
+- forecast accuracy against the naive baseline;
+- pipeline health.
+
+Every chart has a table view, keyboard-accessible tooltips, and light and dark themes.
+
+To set it up:
+1. **Enable Pages:** under Settings → Pages, set Source to **GitHub Actions**.
+2. **Add two variables:** under Settings → Secrets and variables → Actions → **Variables**, add:
+   - `SUPABASE_URL`: the project URL, `https://<project-ref>.supabase.co`;
+   - `SUPABASE_ANON_KEY`: the anon / publishable key, from Project Settings → API in Supabase.
+3. **Deploy:** run the **Dashboard** workflow, or push a change to `dashboard/`.
+
+Dashboard unit tests: `cd dashboard && node --test tests/*.test.mjs`.
 
 ## Running it
 

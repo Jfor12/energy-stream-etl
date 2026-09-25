@@ -234,12 +234,13 @@ def ensure_schema(conn) -> List[str]:
             "GROUP BY 1 HAVING COUNT(*) > 1; then delete the extra rows."
         ) from e
 
-    # The Looker views go in separately: if one can't be replaced (say it was
-    # changed by hand in Supabase), the old version keeps serving the
-    # dashboard and data keeps flowing, and the run is flagged instead.
+    # The dashboard views and their permissions go in separately: if one can't
+    # be replaced (say it was changed by hand in Supabase), the old version
+    # keeps serving the dashboard and data keeps flowing; the run is flagged.
     try:
         with conn.cursor() as cur:
-            cur.execute((SQL_DIR / "dashboard_views.sql").read_text())
+            for name in ("dashboard_views.sql", "public_api.sql"):
+                cur.execute((SQL_DIR / name).read_text())
         conn.commit()
     except psycopg.Error as e:
         conn.rollback()
