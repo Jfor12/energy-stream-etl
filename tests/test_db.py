@@ -238,6 +238,10 @@ class TestLiveDatabaseCompatibility:
         # Things people built on the old views in Supabase, which go with them.
         db.execute("CREATE MATERIALIZED VIEW v_daily_accuracy AS SELECT * FROM actual_vs_predicted")
         db.execute("CREATE VIEW my_error_chart AS SELECT * FROM error_rate_24h")
+        # Views that were made for Looker by hand in Supabase.
+        db.execute("CREATE VIEW grid_telemetry_24h AS SELECT * FROM grid_telemetry")
+        db.execute("CREATE VIEW grid_predictions_24h AS SELECT * FROM grid_predictions")
+        db.execute("CREATE VIEW view_energy_mix_long AS SELECT timestamp, 'Wind' AS fuel, fuel_wind_perc AS perc FROM grid_telemetry")
         db.execute("CREATE VIEW my_own_view AS SELECT timestamp FROM grid_telemetry")  # unrelated: kept
         etl_job.ensure_schema(db)
         etl_job.ensure_schema(db)  # and again: nothing left to drop is fine
@@ -245,7 +249,8 @@ class TestLiveDatabaseCompatibility:
             "SELECT relname FROM pg_class WHERE relkind IN ('v', 'm') AND relnamespace = 'public'::regnamespace")}
         for retired in ("grid_predictions_extended", "actual_vs_predicted", "actual_vs_predicted_24h",
                         "error_rate_24h", "latest_reading", "grid_telemetry_wide_last_24_hours",
-                        "v_daily_accuracy", "my_error_chart", "grid_mix_hourly"):
+                        "v_daily_accuracy", "my_error_chart", "grid_mix_hourly",
+                        "grid_telemetry_24h", "grid_predictions_24h", "view_energy_mix_long"):
             assert retired not in remaining
         assert {"my_own_view", "forecast_accuracy", "forecast_skill", "dashboard_hourly"} <= remaining
         db.execute("DROP VIEW my_own_view")

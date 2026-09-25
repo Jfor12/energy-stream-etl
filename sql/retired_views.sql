@@ -13,7 +13,8 @@ BEGIN
         WHERE n.nspname = 'public' AND c.relkind IN ('v', 'm') AND c.relname IN (
             'error_rate_24h', 'actual_vs_predicted_24h', 'actual_vs_predicted', 'grid_predictions_extended',
             'latest_reading', 'grid_telemetry_wide_last_24_hours', 'view_daily_cleanliness', 'grid_mix_hourly',
-            'v_daily_accuracy', 'v_hourly_accuracy', 'v_weekly_accuracy')
+            'v_daily_accuracy', 'v_hourly_accuracy', 'v_weekly_accuracy',
+            'grid_telemetry_24h', 'grid_predictions_24h', 'view_energy_mix_long')
     LOOP
         -- An earlier iteration's CASCADE may already have removed it.
         IF to_regclass(format('public.%I', item.relname)) IS NOT NULL THEN
