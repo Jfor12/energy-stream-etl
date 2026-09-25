@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Carbon Dashboard</title>
+<meta name="description" content="How clean Great Britain's electricity is right now, where it comes from, and a 24-hour forecast, updated hourly from the National Grid ESO Carbon Intensity API.">
+<meta name="author" content="Jacopo Fornesi">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+<script>
+  // Apply a saved theme before first paint.
+  try { const t = localStorage.getItem('theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch {}
+</script>
+<script src="config.js"></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top__inner">
+    <div>
+      <p class="eyebrow">Great Britain’s electricity</p>
+      <h1>How clean is the grid?</h1>
+    </div>
+    <button type="button" class="button button--quiet" id="theme-toggle" aria-pressed="false">Dark mode</button>
+  </div>
+</header>
+
+<main id="main" class="wrap" tabindex="-1">
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+
+  <section class="now" aria-labelledby="now-title">
+    <h2 id="now-title" class="vh">Right now</h2>
+    <div class="hero card">
+      <p class="hero__label">Carbon intensity, <span id="now-time">–</span></p>
+      <p class="hero__value"><span id="now-value">–</span><span class="hero__unit">gCO₂/kWh</span></p>
+      <p class="delta" id="now-delta"></p>
+    </div>
+    <ul class="tiles">
+      <li class="tile card"><p class="tile__label">Wind and solar</p><p class="tile__value" id="tile-windsolar">–</p><p class="tile__note">share of generation</p></li>
+      <li class="tile card"><p class="tile__label">Low carbon</p><p class="tile__value" id="tile-lowcarbon">–</p><p class="tile__note">wind, solar, nuclear and biomass</p></li>
+      <li class="tile card"><p class="tile__label">Gas</p><p class="tile__value" id="tile-gas">–</p><p class="tile__note">share of generation</p></li>
+      <li class="tile card"><p class="tile__label">30-day average</p><p class="tile__value" id="tile-average">–</p><p class="tile__note">gCO₂/kWh</p></li>
+    </ul>
+  </section>
+
+  <div class="filters" role="group" aria-label="Time range for the charts">
+    <button type="button" class="filter" data-range="24h" aria-pressed="false">24 hours</button>
+    <button type="button" class="filter" data-range="7d" aria-pressed="true">7 days</button>
+    <button type="button" class="filter" data-range="30d" aria-pressed="false">30 days</button>
+    <button type="button" class="filter" data-range="12m" aria-pressed="false">12 months</button>
+  </div>
+
+  <section class="card chart-card" aria-labelledby="intensity-title">
+    <h2 id="intensity-title">Carbon intensity</h2>
+    <p class="card__sub" id="intensity-sub">Grams of CO₂ per kilowatt-hour of electricity generated.</p>
+    <ul class="legend" id="intensity-legend"></ul>
+    <div class="chart" id="intensity-chart"></div>
+    <details class="table-view" id="intensity-table"><summary>Show as a table</summary><div class="table-wrap"></div></details>
+  </section>
+
+  <section class="card chart-card" aria-labelledby="mix-title">
+    <h2 id="mix-title">Where the power comes from</h2>
+    <p class="card__sub" id="mix-sub">Share of Great Britain’s generation by source.</p>
+    <ul class="legend" id="mix-legend"></ul>
+    <div class="chart" id="mix-chart"></div>
+    <details class="table-view" id="mix-table"><summary>Show as a table</summary><div class="table-wrap"></div></details>
+  </section>
+
+  <div class="columns">
+    <section class="card" aria-labelledby="accuracy-title">
+      <h2 id="accuracy-title">How good is the forecast?</h2>
+      <p class="card__sub">Every three hours, <a href="https://huggingface.co/amazon/chronos-bolt-small">Chronos-Bolt</a> forecasts the next 24 hours. Its average error is compared with simply repeating the value from 24 hours earlier.</p>
+      <div class="table-wrap" id="accuracy"></div>
+    </section>
+
+    <section class="card" aria-labelledby="pipeline-title">
+      <h2 id="pipeline-title">Pipeline</h2>
+      <ul class="health" id="health"></ul>
+      <details class="table-view" id="runs-table"><summary>Recent runs</summary><div class="table-wrap"></div></details>
+    </section>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__inner">
+    <p>Data: <a href="https://carbonintensity.org.uk/">Carbon Intensity API</a> (National Energy System Operator), collected hourly. Forecasts by Amazon’s Chronos-Bolt. Times are UK time.</p>
+    <p>Made by <a href="https://jacopofornesi.co.uk/">Jacopo Fornesi</a> · <a href="https://github.com/Jfor12/energy-stream-etl">Source on GitHub</a></p>
+  </div>
+</footer>
+</body>
+</html>
