@@ -1,29 +1,5 @@
--- Analytics views for Looker Studio. Applied after schema.sql on every run.
-
--- The hourly mix with every fuel, plus the groupings the dashboard uses.
--- coverage_perc should be close to 100; hours stored before all fuels were
--- collected (before this change) show only gas, nuclear, wind and solar.
-CREATE OR REPLACE VIEW grid_mix_hourly AS
-SELECT
-    timestamp,
-    overall_intensity,
-    intensity_forecast,
-    intensity_is_actual,
-    fuel_gas_perc,
-    fuel_coal_perc,
-    fuel_nuclear_perc,
-    fuel_wind_perc,
-    fuel_solar_perc,
-    fuel_hydro_perc,
-    fuel_biomass_perc,
-    fuel_imports_perc,
-    fuel_other_perc,
-    COALESCE(fuel_wind_perc, 0) + COALESCE(fuel_solar_perc, 0) + COALESCE(fuel_hydro_perc, 0) AS renewables_perc,
-    COALESCE(fuel_gas_perc, 0) + COALESCE(fuel_coal_perc, 0) AS fossil_perc,
-    COALESCE(fuel_gas_perc, 0) + COALESCE(fuel_coal_perc, 0) + COALESCE(fuel_nuclear_perc, 0)
-        + COALESCE(fuel_wind_perc, 0) + COALESCE(fuel_solar_perc, 0) + COALESCE(fuel_hydro_perc, 0)
-        + COALESCE(fuel_biomass_perc, 0) + COALESCE(fuel_imports_perc, 0) + COALESCE(fuel_other_perc, 0) AS coverage_perc
-FROM grid_telemetry;
+-- Forecast evaluation views (the dashboard reads forecast_skill through
+-- dashboard_forecast_skill). Applied after schema.sql on every run.
 
 -- Every model forecast next to what actually happened. The naive baseline
 -- repeats the value from 24 hours before the forecast hour, which was always

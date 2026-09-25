@@ -12,8 +12,8 @@ if str(REPO_ROOT) not in sys.path:
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
 # The live database as it was before this version (tables, indexes and the
-# dashboard views, as exported from Supabase), so the tests prove the schema
-# upgrade and sql/dashboard_views.sql work on it.
+# Looker-era views, as exported from Supabase), so the tests prove the schema
+# upgrade, and the retirement of those views, work on it.
 LEGACY_SCHEMA = """
 DO $$ BEGIN
     -- Supabase's API roles, so the permission rules in sql/public_api.sql run.
@@ -21,7 +21,18 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
 END $$;
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
-DROP VIEW IF EXISTS latest_reading, grid_telemetry_wide_last_24_hours CASCADE;
+DO $$
+DECLARE item record;
+BEGIN
+    -- Start clean: drop every view left by earlier tests, including ones
+    -- that don't depend on the tables (so the table drop wouldn't catch them).
+    FOR item IN SELECT c.relname, c.relkind FROM pg_class c
+                WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('v', 'm') LOOP
+        IF to_regclass(format('public.%I', item.relname)) IS NOT NULL THEN
+            EXECUTE format('DROP %s public.%I CASCADE', CASE item.relkind WHEN 'm' THEN 'MATERIALIZED VIEW' ELSE 'VIEW' END, item.relname);
+        END IF;
+    END LOOP;
+END $$;
 DROP TABLE IF EXISTS grid_telemetry, etl_runs, grid_predictions CASCADE;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
 CREATE TABLE grid_telemetry (
