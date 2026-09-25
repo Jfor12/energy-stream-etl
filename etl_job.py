@@ -196,9 +196,11 @@ def fetch_day(end: datetime) -> tuple:
 COLUMNS = ["timestamp", "overall_intensity", "intensity_forecast", "intensity_is_actual", "half_hours"] + [f"fuel_{f}_perc" for f in FUELS]
 VALUE_COLUMNS = COLUMNS[1:]
 
+UPSERT_BATCH = 500  # rows per statement, well under Postgres's parameter limit
+
 UPSERT_SQL = f"""
     INSERT INTO grid_telemetry ({", ".join(COLUMNS)}, updated_at)
-    VALUES ({", ".join(f"%({c})s" for c in COLUMNS)}, NOW())
+    VALUES {{values}}
     ON CONFLICT (timestamp) DO UPDATE SET
         {", ".join(f"{c} = EXCLUDED.{c}" for c in VALUE_COLUMNS)}, updated_at = NOW()
     WHERE ({", ".join(f"grid_telemetry.{c}" for c in VALUE_COLUMNS)})
@@ -233,18 +235,21 @@ def ensure_schema(conn):
 
 
 def upsert_rows(conn, rows: List[dict]) -> tuple:
-    """Insert new hours and update changed ones. Returns (inserted, updated)."""
+    """Insert new hours and update changed ones, many rows per statement so a
+    day is one round trip. Returns (inserted, updated)."""
     inserted = updated = 0
+    placeholder = "(" + ", ".join(["%s"] * len(COLUMNS)) + ", NOW())"
     with conn.cursor() as cur:
-        for row in rows:
-            cur.execute(UPSERT_SQL, row)
-            result = cur.fetchone()
-            if result is None:
-                continue  # unchanged
-            if result[0]:
-                inserted += 1
-            else:
-                updated += 1
+        for i in range(0, len(rows), UPSERT_BATCH):
+            batch = rows[i:i + UPSERT_BATCH]
+            cur.execute(UPSERT_SQL.format(values=", ".join([placeholder] * len(batch))),
+                        [row[c] for row in batch for c in COLUMNS])
+            # Only inserted or changed rows come back; unchanged ones don't.
+            for (was_inserted,) in cur.fetchall():
+                if was_inserted:
+                    inserted += 1
+                else:
+                    updated += 1
     conn.commit()
     return inserted, updated
 
@@ -275,44 +280,69 @@ def run_pipeline(db_url: Optional[str], days: int = 1, dry_run: bool = False, no
         return 1
 
     logger.info(f"=== Grid ETL: {days} day(s) up to {api_time(end)}{' (dry run)' if dry_run else ''} ===")
-    intensity, generation, rejected = {}, {}, []
-    try:
-        for day in range(days):
-            day_intensity, day_generation, day_rejected = fetch_day(end - timedelta(days=day))
-            intensity.update(day_intensity)
-            generation.update(day_generation)
-            rejected += day_rejected
-            if days > 1:
-                time.sleep(0.5)  # be gentle with the public API when backfilling
-    except Exception:
-        logger.exception("Fetching from the Carbon Intensity API failed")
-        if not dry_run:
+    if not dry_run:
+        try:
+            with connect(db_url) as conn:
+                ensure_schema(conn)
+        except Exception:
+            logger.exception("Preparing the database failed")
             log_failure(db_url, "etl", elapsed_ms(), traceback.format_exc())
-        return 1
+            return 1
+
+    # Each day is fetched and saved on its own, so a long backfill keeps what
+    # it has loaded, and a day the API keeps failing on is skipped (and
+    # reported) instead of losing the whole run. A rerun fills it in.
+    rows_built = inserted = updated = 0
+    rejected, skipped, latest = [], [], []
+    for day in range(days):
+        day_end = end - timedelta(days=day)
+        try:
+            intensity, generation, day_rejected = fetch_day(day_end)
+        except Exception as e:
+            logger.error(f"Skipped the 24 hours before {api_time(day_end)}: {e}")
+            skipped.append(f"{api_time(day_end)}: {e}")
+            continue
+        rows = build_hourly_rows(intensity, generation)
+        rows_built += len(rows)
+        rejected += day_rejected
+        latest = latest or rows[-3:]
+        if not dry_run:
+            try:
+                with connect(db_url) as conn:
+                    day_inserted, day_updated = upsert_rows(conn, rows)
+            except Exception:
+                logger.exception("Writing to the database failed")
+                log_failure(db_url, "etl", elapsed_ms(), traceback.format_exc())
+                return 1
+            inserted += day_inserted
+            updated += day_updated
+        if days > 1:
+            if (day + 1) % 30 == 0:
+                logger.info(f"{day + 1}/{days} days loaded ({inserted} hours inserted, {updated} updated so far)")
+            time.sleep(0.5)  # be gentle with the public API when backfilling
 
     for reason in rejected:
         logger.warning(f"Rejected: {reason}")
-    rows = build_hourly_rows(intensity, generation)
-    logger.info(f"{len(rows)} hourly rows built, {len(rejected)} half-hour readings rejected")
+    logger.info(f"{rows_built} hourly rows built, {len(rejected)} half-hour readings rejected, "
+                f"{len(skipped)} of {days} day(s) skipped")
+    status = "failure" if len(skipped) == days else "partial" if skipped or rejected else "success"
 
     if dry_run:
-        for row in rows[-3:]:
+        for row in latest:
             logger.info(f"Latest: {row}")
-        return 0 if rows else 1
+        return 1 if skipped else 0
 
+    problems = [f"Skipped {reason}" for reason in skipped] + rejected
     try:
         with connect(db_url) as conn:
-            ensure_schema(conn)
-            inserted, updated = upsert_rows(conn, rows)
-            status = "partial" if rejected else "success"
             log_run(conn, "etl", status, elapsed_ms(), inserted, updated, len(rejected),
-                    "; ".join(rejected)[:4000] or None)
-        logger.info(f"✅ {inserted} hours inserted, {updated} updated, {len(rows) - inserted - updated} unchanged")
-        return 0
-    except Exception:
-        logger.exception("Writing to the database failed")
-        log_failure(db_url, "etl", elapsed_ms(), traceback.format_exc())
-        return 1
+                    "; ".join(problems)[:4000] or None)
+    except Exception as e:
+        logger.error(f"Could not record the run in etl_runs: {e}")
+    logger.info(f"{'✅' if not skipped else '⚠️'} {inserted} hours inserted, {updated} updated, "
+                f"{rows_built - inserted - updated} unchanged")
+    # Skipped days turn the run red so they get noticed; what loaded is kept.
+    return 1 if skipped else 0
 
 
 def log_failure(db_url, job, execution_time_ms, error):
