@@ -61,6 +61,14 @@ ALTER TABLE grid_predictions
     ADD COLUMN IF NOT EXISTS predicted_low DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS predicted_high DOUBLE PRECISION;
 
+-- The old Edge Function allowed one prediction per hour and fuel. Forecasts
+-- are now kept from every run (to score them by horizon), so that rule goes;
+-- the key below stops a run being stored twice instead.
+ALTER TABLE grid_predictions DROP CONSTRAINT IF EXISTS unique_prediction_per_hour;
+ALTER TABLE grid_predictions DROP CONSTRAINT IF EXISTS unique_prediction_per_fuel;
+DROP INDEX IF EXISTS unique_prediction_per_hour;
+DROP INDEX IF EXISTS unique_prediction_per_fuel;
+
 CREATE UNIQUE INDEX IF NOT EXISTS grid_predictions_forecast_key
     ON grid_predictions (model, fuel_type, forecast_origin, prediction_timestamp)
     WHERE model IS NOT NULL;

@@ -56,6 +56,7 @@ All schema changes live in `sql/schema.sql`. They are idempotent, applied at the
 | `etl_runs` | One row per run of either job. |
 | `grid_mix_hourly` | The hourly mix with renewables, fossil and a coverage check. |
 | `forecast_accuracy`, `forecast_skill` | Forecast evaluation, as above. |
+| `grid_predictions_extended`, `actual_vs_predicted`, `actual_vs_predicted_24h`, `error_rate_24h`, `latest_reading`, `grid_telemetry_wide_last_24_hours` | The views the Looker dashboard was first built on (`sql/dashboard_views.sql`). They use the newest real forecast for each hour and add an "Other" share (100% minus the four forecast fuels). |
 
 ## Running it
 
