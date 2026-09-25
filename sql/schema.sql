@@ -61,13 +61,40 @@ ALTER TABLE grid_predictions
     ADD COLUMN IF NOT EXISTS predicted_low DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS predicted_high DOUBLE PRECISION;
 
--- The old Edge Function allowed one prediction per hour and fuel. Forecasts
--- are now kept from every run (to score them by horizon), so that rule goes;
--- the key below stops a run being stored twice instead.
-ALTER TABLE grid_predictions DROP CONSTRAINT IF EXISTS unique_prediction_per_hour;
-ALTER TABLE grid_predictions DROP CONSTRAINT IF EXISTS unique_prediction_per_fuel;
-DROP INDEX IF EXISTS unique_prediction_per_hour;
-DROP INDEX IF EXISTS unique_prediction_per_fuel;
+-- The old Edge Function allowed one prediction per hour and fuel, and the
+-- live database ended up with that rule several times under different names.
+-- Forecasts are now kept from every run (to score them by horizon), so every
+-- unique constraint or index on exactly (prediction_timestamp, fuel_type) is
+-- dropped, whatever it is called. The key below stops a run being stored twice.
+DO $$
+DECLARE
+    rule record;
+BEGIN
+    FOR rule IN
+        SELECT c.conname AS name, TRUE AS is_constraint
+        FROM pg_constraint c
+        WHERE c.conrelid = 'grid_predictions'::regclass AND c.contype = 'u'
+          AND (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
+               WHERE a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey))
+              = ARRAY['fuel_type', 'prediction_timestamp']
+        UNION ALL
+        SELECT i.indexrelid::regclass::text, FALSE
+        FROM pg_index i
+        WHERE i.indrelid = 'grid_predictions'::regclass AND i.indisunique AND NOT i.indisprimary
+          AND i.indpred IS NULL
+          AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid)
+          AND (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
+               WHERE a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey::int2[]))
+              = ARRAY['fuel_type', 'prediction_timestamp']
+    LOOP
+        IF rule.is_constraint THEN
+            EXECUTE format('ALTER TABLE grid_predictions DROP CONSTRAINT %I', rule.name);
+        ELSE
+            EXECUTE format('DROP INDEX %s', rule.name);
+        END IF;
+        RAISE NOTICE 'Dropped one-prediction-per-hour rule %', rule.name;
+    END LOOP;
+END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS grid_predictions_forecast_key
     ON grid_predictions (model, fuel_type, forecast_origin, prediction_timestamp)
