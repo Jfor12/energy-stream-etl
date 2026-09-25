@@ -219,10 +219,10 @@ def connect(db_url: str):
 
 
 def ensure_schema(conn):
-    """Apply sql/schema.sql and sql/views.sql (both idempotent)."""
+    """Apply the schema and views in sql/ (all idempotent)."""
     try:
         with conn.cursor() as cur:
-            for name in ("schema.sql", "views.sql"):
+            for name in ("schema.sql", "views.sql", "dashboard_views.sql"):
                 cur.execute((SQL_DIR / name).read_text())
         conn.commit()
     except psycopg.errors.UniqueViolation as e:

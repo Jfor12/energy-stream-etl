@@ -212,3 +212,43 @@ class TestBackfillResilience:
         monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
         assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
         assert len(telemetry(db)) == 24 and runs(db)[-1][2] == 24
+
+
+class TestLiveDatabaseCompatibility:
+    """The live database had one-prediction-per-hour and dashboard views built
+    on it (see LEGACY_SCHEMA); the forecast job failed on it in production."""
+
+    def test_forecast_stores_even_where_old_edge_function_rows_exist(self, db, now):
+        origin = fill_history(db, now)
+        db.execute("INSERT INTO grid_predictions (prediction_timestamp, fuel_type, predicted_value) "
+                   "VALUES (%s, 'Overall_Intensity', 42)", (origin + timedelta(hours=1),))
+        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
+        assert db.execute("SELECT COUNT(*) FROM grid_predictions WHERE model = 'fake'").fetchone()[0] == 120
+
+    def test_forecasts_from_successive_runs_are_all_kept(self, db, now):
+        fill_history(db, now)
+        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
+        # Three hours later the next forecast overlaps 21 of the same hours.
+        fill_history(db, now + timedelta(hours=3), hours=3)
+        assert forecast.run(TEST_DATABASE_URL, now=now + timedelta(hours=3), pipeline=FakeModel(), model_id="fake") == 0
+        assert db.execute("SELECT COUNT(DISTINCT forecast_origin) FROM grid_predictions").fetchone()[0] == 2
+
+    def test_dashboard_views_use_the_newest_real_forecast_per_hour(self, db, now):
+        origin = fill_history(db, now)
+        hour = origin + timedelta(hours=1)
+        db.execute("INSERT INTO grid_predictions (prediction_timestamp, fuel_type, predicted_value) "
+                   "VALUES (%s, 'Wind', 99)", (hour,))  # old random row: ignored
+        db.execute("UPDATE grid_telemetry SET fuel_wind_perc = 31 WHERE timestamp = %s", (origin,))
+        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
+        db.execute("INSERT INTO grid_telemetry (timestamp, overall_intensity, fuel_wind_perc, fuel_solar_perc, "
+                   "fuel_gas_perc, fuel_nuclear_perc, half_hours) VALUES (%s, 105, 36, 5, 40, 15, 2)", (hour,))
+        rows = dict(db.execute("SELECT fuel_type, predicted_value FROM grid_predictions_extended "
+                               "WHERE prediction_timestamp = %s", (hour,)).fetchall())
+        # One row per fuel, from the model, plus "Other" = 100 - the four fuels.
+        assert rows == {"Overall_Intensity": 100.0, "Wind": 31.0, "Solar": 5.0, "Gas": 40.0, "Nuclear": 15.0, "Other": 9.0}
+        compared = db.execute("SELECT fuel_type, actual_value, prediction_error FROM actual_vs_predicted "
+                              "WHERE fuel_type IN ('Wind', 'Other') ORDER BY 1").fetchall()
+        assert compared == [("Other", 4.0, 5.0), ("Wind", 36.0, 5.0)]
+        assert db.execute("SELECT COUNT(*) FROM error_rate_24h").fetchone()[0] >= 0  # still queryable
+        # SELECT * views now include the new columns too.
+        assert "fuel_biomass_perc" in [c.name for c in db.execute("SELECT * FROM latest_reading").description]

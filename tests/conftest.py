@@ -11,20 +11,31 @@ if str(REPO_ROOT) not in sys.path:
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
-# The tables as they exist in the live database before this version, so the
-# tests prove the schema upgrade works on them.
+# The live database as it was before this version (tables, indexes and the
+# dashboard views, as exported from Supabase), so the tests prove the schema
+# upgrade and sql/dashboard_views.sql work on it.
 LEGACY_SCHEMA = """
-DROP VIEW IF EXISTS forecast_skill, forecast_accuracy, grid_mix_hourly;
-DROP TABLE IF EXISTS grid_telemetry, etl_runs, grid_predictions;
+DROP TABLE IF EXISTS grid_telemetry, etl_runs, grid_predictions CASCADE;
 CREATE TABLE grid_telemetry (
-    id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMPTZ,
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
     overall_intensity INT,
     fuel_gas_perc DOUBLE PRECISION,
     fuel_nuclear_perc DOUBLE PRECISION,
     fuel_wind_perc DOUBLE PRECISION,
     fuel_solar_perc DOUBLE PRECISION
 );
+CREATE INDEX idx_telemetry_timestamp ON grid_telemetry(timestamp);
+CREATE INDEX idx_telemetry_hour_utc ON grid_telemetry (date_trunc('hour', timestamp AT TIME ZONE 'UTC'));
+CREATE TABLE grid_predictions (
+    id BIGSERIAL PRIMARY KEY,
+    prediction_timestamp TIMESTAMPTZ NOT NULL,
+    fuel_type VARCHAR(20) NOT NULL,
+    predicted_value DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT unique_prediction_per_hour UNIQUE (prediction_timestamp, fuel_type)
+);
+CREATE INDEX idx_predictions_fuel_type ON grid_predictions(fuel_type);
 CREATE TABLE etl_runs (
     id BIGSERIAL PRIMARY KEY,
     run_timestamp TIMESTAMPTZ DEFAULT NOW(),
@@ -33,13 +44,71 @@ CREATE TABLE etl_runs (
     execution_time_ms INT,
     error_message TEXT
 );
-CREATE TABLE grid_predictions (
-    id BIGSERIAL PRIMARY KEY,
-    prediction_timestamp TIMESTAMPTZ NOT NULL,
-    fuel_type VARCHAR NOT NULL,
-    predicted_value DOUBLE PRECISION NOT NULL,
-    created_at TIMESTAMPTZ
-);
+
+CREATE VIEW grid_predictions_extended AS
+WITH base_predictions AS (
+    SELECT prediction_timestamp, fuel_type, predicted_value
+    FROM grid_predictions
+    WHERE fuel_type != 'Overall_Intensity'
+),
+other_fuel AS (
+    SELECT prediction_timestamp, 'Other' AS fuel_type, (100.0 - SUM(predicted_value)) AS predicted_value
+    FROM base_predictions
+    GROUP BY prediction_timestamp
+)
+SELECT id, prediction_timestamp, fuel_type, predicted_value, created_at FROM grid_predictions
+UNION ALL
+SELECT NULL, prediction_timestamp, fuel_type, predicted_value, NOW() FROM other_fuel;
+
+CREATE VIEW actual_vs_predicted AS
+SELECT
+    g.timestamp AS actual_timestamp,
+    p.prediction_timestamp,
+    p.fuel_type,
+    CASE
+        WHEN p.fuel_type = 'Overall_Intensity' THEN g.overall_intensity
+        WHEN p.fuel_type = 'Wind' THEN g.fuel_wind_perc
+        WHEN p.fuel_type = 'Solar' THEN g.fuel_solar_perc
+        WHEN p.fuel_type = 'Gas' THEN g.fuel_gas_perc
+        WHEN p.fuel_type = 'Nuclear' THEN g.fuel_nuclear_perc
+        WHEN p.fuel_type = 'Other' THEN (100.0 - (COALESCE(g.fuel_wind_perc,0) + COALESCE(g.fuel_solar_perc,0) + COALESCE(g.fuel_gas_perc,0) + COALESCE(g.fuel_nuclear_perc,0)))
+        ELSE NULL
+    END AS actual_value,
+    p.predicted_value,
+    ABS(
+        (CASE
+            WHEN p.fuel_type = 'Overall_Intensity' THEN g.overall_intensity
+            WHEN p.fuel_type = 'Wind' THEN g.fuel_wind_perc
+            WHEN p.fuel_type = 'Solar' THEN g.fuel_solar_perc
+            WHEN p.fuel_type = 'Gas' THEN g.fuel_gas_perc
+            WHEN p.fuel_type = 'Nuclear' THEN g.fuel_nuclear_perc
+            WHEN p.fuel_type = 'Other' THEN (100.0 - (COALESCE(g.fuel_wind_perc,0) + COALESCE(g.fuel_solar_perc,0) + COALESCE(g.fuel_gas_perc,0) + COALESCE(g.fuel_nuclear_perc,0)))
+            ELSE NULL
+        END) - p.predicted_value
+    ) AS prediction_error
+FROM grid_telemetry g
+INNER JOIN grid_predictions_extended p ON g.timestamp = p.prediction_timestamp;
+
+CREATE VIEW actual_vs_predicted_24h AS
+SELECT *, (100.0 * prediction_error / NULLIF(actual_value, 0))::NUMERIC(10,2) AS error_percentage
+FROM actual_vs_predicted
+WHERE actual_timestamp >= NOW() - INTERVAL '24 hours';
+
+CREATE VIEW error_rate_24h AS
+SELECT
+    date_trunc('hour', actual_timestamp AT TIME ZONE 'UTC') AS hour_utc,
+    fuel_type,
+    AVG(100.0 * prediction_error / NULLIF(actual_value, 0))::NUMERIC(10,2) AS avg_error_percentage,
+    COUNT(*) AS n_predictions
+FROM actual_vs_predicted
+WHERE actual_timestamp >= NOW() - INTERVAL '24 hours'
+GROUP BY 1, 2;
+
+CREATE VIEW latest_reading AS
+SELECT * FROM grid_telemetry ORDER BY timestamp DESC LIMIT 1;
+
+CREATE VIEW grid_telemetry_wide_last_24_hours AS
+SELECT * FROM grid_telemetry WHERE timestamp >= NOW() - INTERVAL '24 hours';
 """
 
 MIX = {"gas": 30.0, "coal": 0.0, "nuclear": 15.0, "wind": 35.0, "solar": 5.0,
