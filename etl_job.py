@@ -239,7 +239,7 @@ def ensure_schema(conn) -> List[str]:
     # keeps serving the dashboard and data keeps flowing; the run is flagged.
     try:
         with conn.cursor() as cur:
-            for name in ("dashboard_views.sql", "public_api.sql"):
+            for name in ("retired_views.sql", "public_api.sql"):
                 cur.execute((SQL_DIR / name).read_text())
         conn.commit()
     except psycopg.Error as e:

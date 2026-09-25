@@ -28,7 +28,7 @@ class TestSchema:
         columns = {row[0] for row in db.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'grid_telemetry'")}
         assert {"fuel_biomass_perc", "intensity_is_actual", "half_hours", "overall_intensity"} <= columns
-        for view in ("grid_mix_hourly", "forecast_accuracy", "forecast_skill"):
+        for view in ("forecast_accuracy", "forecast_skill", "dashboard_hourly"):
             db.execute(f"SELECT * FROM {view}").fetchall()
 
     def test_duplicate_hours_give_a_clear_error(self, db):
@@ -234,25 +234,21 @@ class TestLiveDatabaseCompatibility:
         assert forecast.run(TEST_DATABASE_URL, now=now + timedelta(hours=3), pipeline=FakeModel(), model_id="fake") == 0
         assert db.execute("SELECT COUNT(DISTINCT forecast_origin) FROM grid_predictions").fetchone()[0] == 2
 
-    def test_dashboard_views_use_the_newest_real_forecast_per_hour(self, db, now):
-        origin = fill_history(db, now)
-        hour = origin + timedelta(hours=1)
-        db.execute("INSERT INTO grid_predictions (prediction_timestamp, fuel_type, predicted_value) "
-                   "VALUES (%s, 'Wind', 99)", (hour,))  # old random row: ignored
-        db.execute("UPDATE grid_telemetry SET fuel_wind_perc = 31 WHERE timestamp = %s", (origin,))
-        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
-        db.execute("INSERT INTO grid_telemetry (timestamp, overall_intensity, fuel_wind_perc, fuel_solar_perc, "
-                   "fuel_gas_perc, fuel_nuclear_perc, half_hours) VALUES (%s, 105, 36, 5, 40, 15, 2)", (hour,))
-        rows = dict(db.execute("SELECT fuel_type, predicted_value FROM grid_predictions_extended "
-                               "WHERE prediction_timestamp = %s", (hour,)).fetchall())
-        # One row per fuel, from the model, plus "Other" = 100 - the four fuels.
-        assert rows == {"Overall_Intensity": 100.0, "Wind": 31.0, "Solar": 5.0, "Gas": 40.0, "Nuclear": 15.0, "Other": 9.0}
-        compared = db.execute("SELECT fuel_type, actual_value, prediction_error FROM actual_vs_predicted "
-                              "WHERE fuel_type IN ('Wind', 'Other') ORDER BY 1").fetchall()
-        assert compared == [("Other", 4.0, 5.0), ("Wind", 36.0, 5.0)]
-        assert db.execute("SELECT COUNT(*) FROM error_rate_24h").fetchone()[0] >= 0  # still queryable
-        # SELECT * views now include the new columns too.
-        assert "fuel_biomass_perc" in [c.name for c in db.execute("SELECT * FROM latest_reading").description]
+    def test_the_looker_era_views_are_removed(self, db, now):
+        # Things people built on the old views in Supabase, which go with them.
+        db.execute("CREATE MATERIALIZED VIEW v_daily_accuracy AS SELECT * FROM actual_vs_predicted")
+        db.execute("CREATE VIEW my_error_chart AS SELECT * FROM error_rate_24h")
+        db.execute("CREATE VIEW my_own_view AS SELECT timestamp FROM grid_telemetry")  # unrelated: kept
+        etl_job.ensure_schema(db)
+        etl_job.ensure_schema(db)  # and again: nothing left to drop is fine
+        remaining = {row[0] for row in db.execute(
+            "SELECT relname FROM pg_class WHERE relkind IN ('v', 'm') AND relnamespace = 'public'::regnamespace")}
+        for retired in ("grid_predictions_extended", "actual_vs_predicted", "actual_vs_predicted_24h",
+                        "error_rate_24h", "latest_reading", "grid_telemetry_wide_last_24_hours",
+                        "v_daily_accuracy", "my_error_chart", "grid_mix_hourly"):
+            assert retired not in remaining
+        assert {"my_own_view", "forecast_accuracy", "forecast_skill", "dashboard_hourly"} <= remaining
+        db.execute("DROP VIEW my_own_view")
 
 
 def view_columns(db):
@@ -267,13 +263,14 @@ def view_columns(db):
     return columns
 
 
-class TestLookerCompatibility:
-    """Looker Studio reads the views by name and column. Upgrades may add
-    views and add columns at the end, but never rename, retype or remove."""
+class TestViewStability:
+    """The dashboard reads views by name and column. Upgrades may add views
+    and add columns at the end, but never rename, retype or remove."""
 
     def test_existing_views_keep_every_column(self, db, now, monkeypatch):
+        etl_job.ensure_schema(db)
         before = view_columns(db)
-        assert "actual_vs_predicted" in before and "latest_reading" in before
+        assert "dashboard_hourly" in before and "forecast_skill" in before
         monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
         assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
         after = view_columns(db)
@@ -290,14 +287,13 @@ class TestLookerCompatibility:
 
     def test_a_hand_edited_view_does_not_stop_the_data(self, db, now, monkeypatch):
         # Someone changes a view in Supabase so ours can no longer replace it.
-        db.execute("DROP VIEW latest_reading")
-        db.execute("CREATE VIEW latest_reading AS SELECT 'x'::text AS timestamp")
+        db.execute("CREATE VIEW dashboard_pipeline AS SELECT 'x'::text AS run_timestamp")
         monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
         assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 1  # red, so it's noticed
         assert len(telemetry(db)) == 24  # but the data still loaded
         _, status, *_, message = runs(db)[-1]
         assert status == "partial" and "Dashboard views were not updated" in message
-        assert db.execute("SELECT * FROM latest_reading").fetchone() == ("x",)  # left as it was
+        assert db.execute("SELECT * FROM dashboard_pipeline").fetchone() == ("x",)  # left as it was
 
 
 class TestPublicApi:
@@ -317,7 +313,7 @@ class TestPublicApi:
         for view in ("dashboard_hourly", "dashboard_daily", "dashboard_forecast",
                      "dashboard_forecast_skill", "dashboard_pipeline"):
             self.as_anon(db, f"SELECT * FROM {view} LIMIT 1")
-        for private in ("grid_telemetry", "grid_predictions", "etl_runs", "actual_vs_predicted", "forecast_accuracy"):
+        for private in ("grid_telemetry", "grid_predictions", "etl_runs", "forecast_accuracy", "forecast_skill"):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 self.as_anon(db, f"SELECT * FROM {private} LIMIT 1")
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -367,7 +363,7 @@ def test_other_apps_tables_keep_their_permissions(db):
     db.execute("DROP TABLE IF EXISTS saved_itineraries")
     db.execute("CREATE TABLE saved_itineraries (id SERIAL PRIMARY KEY)")
     db.execute("GRANT SELECT ON saved_itineraries TO anon")
-    db.execute("CREATE VIEW hand_made_accuracy AS SELECT * FROM actual_vs_predicted")  # a view made in Supabase
+    db.execute("CREATE VIEW hand_made_accuracy AS SELECT * FROM grid_telemetry")  # a view made in Supabase
     etl_job.ensure_schema(db)
     db.execute("SET ROLE anon")
     try:
