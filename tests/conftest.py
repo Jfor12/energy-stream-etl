@@ -15,7 +15,15 @@ TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 # dashboard views, as exported from Supabase), so the tests prove the schema
 # upgrade and sql/dashboard_views.sql work on it.
 LEGACY_SCHEMA = """
+DO $$ BEGIN
+    -- Supabase's API roles, so the permission rules in sql/public_api.sql run.
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+END $$;
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+DROP VIEW IF EXISTS latest_reading, grid_telemetry_wide_last_24_hours CASCADE;
 DROP TABLE IF EXISTS grid_telemetry, etl_runs, grid_predictions CASCADE;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
 CREATE TABLE grid_telemetry (
     id BIGSERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ DEFAULT NOW(),

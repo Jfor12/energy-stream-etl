@@ -3,6 +3,7 @@ They start from the tables as they exist in the live database."""
 
 from datetime import timedelta
 
+import psycopg
 import pytest
 
 import etl_job
@@ -252,3 +253,128 @@ class TestLiveDatabaseCompatibility:
         assert db.execute("SELECT COUNT(*) FROM error_rate_24h").fetchone()[0] >= 0  # still queryable
         # SELECT * views now include the new columns too.
         assert "fuel_biomass_perc" in [c.name for c in db.execute("SELECT * FROM latest_reading").description]
+
+
+def view_columns(db):
+    """{view: [(column, type), ...]} for every view in the public schema."""
+    columns = {}
+    for view, column, data_type in db.execute(
+        "SELECT c.table_name, c.column_name, c.data_type FROM information_schema.columns c "
+        "JOIN information_schema.views v ON v.table_name = c.table_name AND v.table_schema = c.table_schema "
+        "WHERE c.table_schema = 'public' ORDER BY c.table_name, c.ordinal_position"
+    ):
+        columns.setdefault(view, []).append((column, data_type))
+    return columns
+
+
+class TestLookerCompatibility:
+    """Looker Studio reads the views by name and column. Upgrades may add
+    views and add columns at the end, but never rename, retype or remove."""
+
+    def test_existing_views_keep_every_column(self, db, now, monkeypatch):
+        before = view_columns(db)
+        assert "actual_vs_predicted" in before and "latest_reading" in before
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
+        after = view_columns(db)
+        for view, columns in before.items():
+            assert after[view][:len(columns)] == columns, view
+
+    def test_every_view_can_be_queried_after_a_run(self, db, now, monkeypatch):
+        fill_history(db, now)  # the forecast needs three days of history
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
+        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
+        for view in view_columns(db):
+            db.execute(f"SELECT * FROM {view} LIMIT 5").fetchall()
+
+    def test_a_hand_edited_view_does_not_stop_the_data(self, db, now, monkeypatch):
+        # Someone changes a view in Supabase so ours can no longer replace it.
+        db.execute("DROP VIEW latest_reading")
+        db.execute("CREATE VIEW latest_reading AS SELECT 'x'::text AS timestamp")
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 1  # red, so it's noticed
+        assert len(telemetry(db)) == 24  # but the data still loaded
+        _, status, *_, message = runs(db)[-1]
+        assert status == "partial" and "Dashboard views were not updated" in message
+        assert db.execute("SELECT * FROM latest_reading").fetchone() == ("x",)  # left as it was
+
+
+class TestPublicApi:
+    """The dashboard reads Supabase with the public (anon) key, so that key
+    must see the dashboard_* views and nothing else, and never write."""
+
+    def as_anon(self, db, sql):
+        db.execute("SET ROLE anon")
+        try:
+            return db.execute(sql).fetchall()
+        finally:
+            db.execute("RESET ROLE")
+
+    def test_the_public_key_reads_only_the_dashboard_views(self, db, now, monkeypatch):
+        fill_history(db, now)
+        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
+        for view in ("dashboard_hourly", "dashboard_daily", "dashboard_forecast",
+                     "dashboard_forecast_skill", "dashboard_pipeline"):
+            self.as_anon(db, f"SELECT * FROM {view} LIMIT 1")
+        for private in ("grid_telemetry", "grid_predictions", "etl_runs", "actual_vs_predicted", "forecast_accuracy"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                self.as_anon(db, f"SELECT * FROM {private} LIMIT 1")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            self.as_anon(db, "INSERT INTO grid_telemetry (timestamp) VALUES (NOW()) RETURNING id")
+        assert db.execute("SELECT relrowsecurity FROM pg_class WHERE relname = 'grid_telemetry'").fetchone() == (True,)
+
+    def test_views_serve_what_the_dashboard_draws(self, db, now, monkeypatch):
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
+        latest = db.execute("SELECT * FROM dashboard_hourly ORDER BY timestamp DESC LIMIT 1").fetchone()
+        # timestamp, intensity, is_actual, wind, gas, nuclear, solar, imports, biomass, other
+        assert latest[1:] == (150, True, 35.0, 30.0, 15.0, 5.0, 7.5, 6.0, 1.5)
+        day = db.execute("SELECT intensity, wind, other, hours FROM dashboard_daily ORDER BY day DESC LIMIT 1").fetchone()
+        assert day[0] == 150 and float(day[1]) == 35.0 and float(day[2]) == 1.5
+        runs_seen = db.execute("SELECT job, status, rows_inserted FROM dashboard_pipeline").fetchall()
+        assert runs_seen == [("etl", "success", 24)]
+
+    def test_only_the_newest_forecast_is_served(self, db, now):
+        fill_history(db, now)
+        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
+        fill_history(db, now + timedelta(hours=2), hours=2)
+        assert forecast.run(TEST_DATABASE_URL, now=now + timedelta(hours=2), pipeline=FakeModel(), model_id="fake") == 0
+        origins = db.execute("SELECT DISTINCT origin FROM dashboard_forecast").fetchall()
+        assert origins == [(now.replace(minute=0) + timedelta(hours=1),)]
+        assert db.execute("SELECT COUNT(*) FROM dashboard_forecast").fetchone()[0] == 120
+
+    def test_row_level_security_does_not_block_a_table_owner(self, db, now, monkeypatch):
+        """On Supabase the pipeline runs as the (non-superuser) table owner."""
+        db.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'etl_owner') "
+                   "THEN CREATE ROLE etl_owner LOGIN PASSWORD 'etl_owner'; END IF; END $$")
+        db.execute("GRANT CREATE, USAGE ON SCHEMA public TO etl_owner")
+        for table in ("grid_telemetry", "grid_predictions", "etl_runs"):
+            db.execute(f"ALTER TABLE {table} OWNER TO etl_owner")
+        for view in ("grid_predictions_extended", "actual_vs_predicted", "actual_vs_predicted_24h",
+                     "error_rate_24h", "latest_reading", "grid_telemetry_wide_last_24_hours"):
+            db.execute(f"ALTER VIEW {view} OWNER TO etl_owner")
+        owner_url = TEST_DATABASE_URL.replace("postgres:postgres@", "etl_owner:etl_owner@", 1)
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(owner_url, now=now) == 0
+        assert etl_job.run_pipeline(owner_url, now=now) == 0  # a second run, with RLS now on
+        assert db.execute("SELECT relrowsecurity FROM pg_class WHERE relname = 'grid_telemetry'").fetchone() == (True,)
+        assert len(telemetry(db)) == 24 and [r[1] for r in runs(db)] == ["success", "success"]
+
+
+def test_other_apps_tables_keep_their_permissions(db):
+    """The permissions step only touches the pipeline's own tables and views."""
+    db.execute("DROP TABLE IF EXISTS saved_itineraries")
+    db.execute("CREATE TABLE saved_itineraries (id SERIAL PRIMARY KEY)")
+    db.execute("GRANT SELECT ON saved_itineraries TO anon")
+    db.execute("CREATE VIEW hand_made_accuracy AS SELECT * FROM actual_vs_predicted")  # a view made in Supabase
+    etl_job.ensure_schema(db)
+    db.execute("SET ROLE anon")
+    try:
+        db.execute("SELECT * FROM saved_itineraries").fetchall()
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            db.execute("SELECT * FROM hand_made_accuracy").fetchall()
+    finally:
+        db.execute("RESET ROLE")
+        db.execute("DROP VIEW IF EXISTS hand_made_accuracy")
+        db.execute("DROP TABLE saved_itineraries")
