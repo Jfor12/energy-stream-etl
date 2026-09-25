@@ -36,6 +36,8 @@ CREATE TABLE grid_predictions (
     CONSTRAINT unique_prediction_per_hour UNIQUE (prediction_timestamp, fuel_type)
 );
 CREATE INDEX idx_predictions_fuel_type ON grid_predictions(fuel_type);
+-- The live database has the same rule a second time, as a plain unique index.
+CREATE UNIQUE INDEX unique_prediction_fuel ON grid_predictions (prediction_timestamp, fuel_type);
 CREATE TABLE etl_runs (
     id BIGSERIAL PRIMARY KEY,
     run_timestamp TIMESTAMPTZ DEFAULT NOW(),
