@@ -54,10 +54,8 @@ All schema changes live in `sql/schema.sql`. They are idempotent, applied at the
 | `grid_telemetry` | One row per hour: `overall_intensity` plus National Grid's own `intensity_forecast`, whether the value is measured (`intensity_is_actual`), and the share of each of gas, coal, nuclear, wind, solar, hydro, biomass, imports and other. |
 | `grid_predictions` | Forecasts, with `model`, `forecast_origin` and the 80% interval. Rows with no `model` came from an earlier Edge Function (see below). |
 | `etl_runs` | One row per run of either job. |
-| `grid_mix_hourly` | The hourly mix with renewables, fossil and a coverage check. |
 | `forecast_accuracy`, `forecast_skill` | Forecast evaluation, as above. |
 | `dashboard_hourly`, `dashboard_daily`, `dashboard_forecast`, `dashboard_forecast_skill`, `dashboard_pipeline` | What the dashboard reads (`sql/public_api.sql`), and the only things Supabase's public key can read. |
-| `grid_predictions_extended`, `actual_vs_predicted`, `actual_vs_predicted_24h`, `error_rate_24h`, `latest_reading`, `grid_telemetry_wide_last_24_hours` | The views the earlier Looker Studio report used (`sql/dashboard_views.sql`), kept working for now. |
 
 ## Dashboard
 
