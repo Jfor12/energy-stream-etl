@@ -15,6 +15,7 @@ TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 # dashboard views, as exported from Supabase), so the tests prove the schema
 # upgrade and sql/dashboard_views.sql work on it.
 LEGACY_SCHEMA = """
+DROP VIEW IF EXISTS latest_reading, grid_telemetry_wide_last_24_hours CASCADE;
 DROP TABLE IF EXISTS grid_telemetry, etl_runs, grid_predictions CASCADE;
 CREATE TABLE grid_telemetry (
     id BIGSERIAL PRIMARY KEY,

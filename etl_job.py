@@ -218,11 +218,12 @@ def connect(db_url: str):
     return psycopg.connect(db_url, connect_timeout=15, prepare_threshold=None, **options)
 
 
-def ensure_schema(conn):
-    """Apply the schema and views in sql/ (all idempotent)."""
+def ensure_schema(conn) -> List[str]:
+    """Apply the schema and views in sql/ (all idempotent). Returns problems
+    that should be reported without stopping the run."""
     try:
         with conn.cursor() as cur:
-            for name in ("schema.sql", "views.sql", "dashboard_views.sql"):
+            for name in ("schema.sql", "views.sql"):
                 cur.execute((SQL_DIR / name).read_text())
         conn.commit()
     except psycopg.errors.UniqueViolation as e:
@@ -232,6 +233,20 @@ def ensure_schema(conn):
             "cannot be created. Find them with: SELECT timestamp, COUNT(*) FROM grid_telemetry "
             "GROUP BY 1 HAVING COUNT(*) > 1; then delete the extra rows."
         ) from e
+
+    # The Looker views go in separately: if one can't be replaced (say it was
+    # changed by hand in Supabase), the old version keeps serving the
+    # dashboard and data keeps flowing, and the run is flagged instead.
+    try:
+        with conn.cursor() as cur:
+            cur.execute((SQL_DIR / "dashboard_views.sql").read_text())
+        conn.commit()
+    except psycopg.Error as e:
+        conn.rollback()
+        problem = f"Dashboard views were not updated (the existing ones are unchanged): {e}".strip()
+        logger.error(problem)
+        return [problem]
+    return []
 
 
 def upsert_rows(conn, rows: List[dict]) -> tuple:
@@ -280,10 +295,11 @@ def run_pipeline(db_url: Optional[str], days: int = 1, dry_run: bool = False, no
         return 1
 
     logger.info(f"=== Grid ETL: {days} day(s) up to {api_time(end)}{' (dry run)' if dry_run else ''} ===")
+    schema_problems = []
     if not dry_run:
         try:
             with connect(db_url) as conn:
-                ensure_schema(conn)
+                schema_problems = ensure_schema(conn)
         except Exception:
             logger.exception("Preparing the database failed")
             log_failure(db_url, "etl", elapsed_ms(), traceback.format_exc())
@@ -325,14 +341,14 @@ def run_pipeline(db_url: Optional[str], days: int = 1, dry_run: bool = False, no
         logger.warning(f"Rejected: {reason}")
     logger.info(f"{rows_built} hourly rows built, {len(rejected)} half-hour readings rejected, "
                 f"{len(skipped)} of {days} day(s) skipped")
-    status = "failure" if len(skipped) == days else "partial" if skipped or rejected else "success"
+    status = "failure" if len(skipped) == days else "partial" if skipped or rejected or schema_problems else "success"
 
     if dry_run:
         for row in latest:
             logger.info(f"Latest: {row}")
         return 1 if skipped else 0
 
-    problems = [f"Skipped {reason}" for reason in skipped] + rejected
+    problems = schema_problems + [f"Skipped {reason}" for reason in skipped] + rejected
     try:
         with connect(db_url) as conn:
             log_run(conn, "etl", status, elapsed_ms(), inserted, updated, len(rejected),
@@ -341,8 +357,9 @@ def run_pipeline(db_url: Optional[str], days: int = 1, dry_run: bool = False, no
         logger.error(f"Could not record the run in etl_runs: {e}")
     logger.info(f"{'✅' if not skipped else '⚠️'} {inserted} hours inserted, {updated} updated, "
                 f"{rows_built - inserted - updated} unchanged")
-    # Skipped days turn the run red so they get noticed; what loaded is kept.
-    return 1 if skipped else 0
+    # Skipped days and view problems turn the run red so they get noticed;
+    # what loaded is kept.
+    return 1 if skipped or schema_problems else 0
 
 
 def log_failure(db_url, job, execution_time_ms, error):

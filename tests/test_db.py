@@ -252,3 +252,48 @@ class TestLiveDatabaseCompatibility:
         assert db.execute("SELECT COUNT(*) FROM error_rate_24h").fetchone()[0] >= 0  # still queryable
         # SELECT * views now include the new columns too.
         assert "fuel_biomass_perc" in [c.name for c in db.execute("SELECT * FROM latest_reading").description]
+
+
+def view_columns(db):
+    """{view: [(column, type), ...]} for every view in the public schema."""
+    columns = {}
+    for view, column, data_type in db.execute(
+        "SELECT c.table_name, c.column_name, c.data_type FROM information_schema.columns c "
+        "JOIN information_schema.views v ON v.table_name = c.table_name AND v.table_schema = c.table_schema "
+        "WHERE c.table_schema = 'public' ORDER BY c.table_name, c.ordinal_position"
+    ):
+        columns.setdefault(view, []).append((column, data_type))
+    return columns
+
+
+class TestLookerCompatibility:
+    """Looker Studio reads the views by name and column. Upgrades may add
+    views and add columns at the end, but never rename, retype or remove."""
+
+    def test_existing_views_keep_every_column(self, db, now, monkeypatch):
+        before = view_columns(db)
+        assert "actual_vs_predicted" in before and "latest_reading" in before
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
+        after = view_columns(db)
+        for view, columns in before.items():
+            assert after[view][:len(columns)] == columns, view
+
+    def test_every_view_can_be_queried_after_a_run(self, db, now, monkeypatch):
+        fill_history(db, now)  # the forecast needs three days of history
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
+        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
+        for view in view_columns(db):
+            db.execute(f"SELECT * FROM {view} LIMIT 5").fetchall()
+
+    def test_a_hand_edited_view_does_not_stop_the_data(self, db, now, monkeypatch):
+        # Someone changes a view in Supabase so ours can no longer replace it.
+        db.execute("DROP VIEW latest_reading")
+        db.execute("CREATE VIEW latest_reading AS SELECT 'x'::text AS timestamp")
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 1  # red, so it's noticed
+        assert len(telemetry(db)) == 24  # but the data still loaded
+        _, status, *_, message = runs(db)[-1]
+        assert status == "partial" and "Dashboard views were not updated" in message
+        assert db.execute("SELECT * FROM latest_reading").fetchone() == ("x",)  # left as it was
