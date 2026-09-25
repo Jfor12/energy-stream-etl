@@ -26,6 +26,8 @@ Every run re-reads the previous 24 hours, so a run GitHub delays or skips leaves
 
 Reruns are safe, for two reasons. Rows are upserted on a unique hour, so nothing is duplicated. A row is also never replaced by one built from fewer readings.
 
+Backfills (`--days`) save each day as soon as it is fetched, in a single database round trip. If the API keeps failing on one day, that day is skipped and listed in `etl_runs`, and the run shows red. Everything else is kept, and a rerun fills in the gap.
+
 **Forecasting** (`forecast.py`, every 3 hours). It works on the latest complete hour:
 - Takes the last 14 days of carbon intensity and the wind, solar, gas and nuclear shares.
 - Forecasts the next 24 hours of each with [`amazon/chronos-bolt-small`](https://huggingface.co/amazon/chronos-bolt-small), a pretrained time-series model that runs on the Actions CPU.
