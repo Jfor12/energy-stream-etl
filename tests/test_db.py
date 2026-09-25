@@ -182,3 +182,33 @@ class TestForecast:
         skill = db.execute("SELECT forecasts, mean_abs_error, interval_coverage FROM forecast_skill "
                            "WHERE fuel_type = 'Overall_Intensity'").fetchone()
         assert skill == (2, 15, 0.5)
+
+
+class TestBackfillResilience:
+    def test_a_failing_day_is_skipped_and_the_rest_is_kept(self, db, now, monkeypatch):
+        bad = etl_job.api_time(now.replace(minute=0) + timedelta(hours=1) - timedelta(days=1))
+
+        def api(path):
+            if bad in path:
+                raise etl_job.requests.HTTPError("500 Server Error")
+            return fake_api(etl_job._parse_iso8601(path.split("/")[2]))(path)
+        monkeypatch.setattr(etl_job, "get_json", api)
+        monkeypatch.setattr(etl_job.time, "sleep", lambda s: None)
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, days=3, now=now) == 1  # red, so it's noticed
+        assert len(telemetry(db)) == 48  # days 1 and 3 were saved
+        job, status, inserted, _, _, message = runs(db)[-1]
+        assert (status, inserted) == ("partial", 48) and f"Skipped {bad}" in message
+
+    def test_every_day_failing_is_a_failure(self, db, now, monkeypatch):
+        def broken(path):
+            raise etl_job.requests.ConnectionError("down")
+        monkeypatch.setattr(etl_job, "get_json", broken)
+        monkeypatch.setattr(etl_job.time, "sleep", lambda s: None)
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, days=2, now=now) == 1
+        assert runs(db)[-1][1] == "failure" and telemetry(db) == []
+
+    def test_rows_are_written_in_batches(self, db, now, monkeypatch):
+        monkeypatch.setattr(etl_job, "UPSERT_BATCH", 5)
+        monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
+        assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
+        assert len(telemetry(db)) == 24 and runs(db)[-1][2] == 24
