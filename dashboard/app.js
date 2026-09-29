@@ -4,7 +4,7 @@
 
 import {
     FUELS, RANGES, createClient, isConfigured, dayString, toSeries, summarise,
-    intensityForecast, pipelineStatus, skillRows, num,
+    intensityForecast, pipelineStatus, skillRows, mixAverages, num,
 } from './data.js';
 import { lineChart, stackedArea, legend, tableView, formatTime } from './charts.js';
 
@@ -158,21 +158,61 @@ function renderIntensity() {
     ], rows);
 }
 
+// The mix reads as days beyond a week: hundreds of hourly bands are noise.
+function mixData() {
+    const range = RANGES[state.range];
+    if (range.source === 'hourly' && range.hours <= 24 * 7) return rangeData();
+    const days = range.days ?? range.hours / 24;
+    const cutoff = dayString(new Date(), days);
+    return { daily: true, series: toSeries(state.daily.filter(row => row.day > cutoff), 'day') };
+}
+
 function renderMix() {
-    const { daily, series } = rangeData();
+    const { daily, series } = mixData();
+    const label = RANGES[state.range].label;
     const layers = FUELS.map(fuel => ({ ...fuel, color: `--fuel-${fuel.key}`, values: series.fuels[fuel.key] }));
     $('#mix-sub').textContent = daily
         ? 'Daily average share of Great Britain’s generation by source.'
         : 'Hourly share of Great Britain’s generation by source.';
-    legend($('#mix-legend'), layers.slice().reverse(), 'rect');
+    $('#mix-summary-title').textContent = `Average, last ${label}`;
+    mixSummary($('#mix-legend'), mixAverages(series).reverse());  // top of the stack first, as drawn
     charts.push(stackedArea($('#mix-chart'), {
         times: series.times, layers, daily,
-        ariaLabel: `Stacked area chart of the generation mix over the last ${RANGES[state.range].label}`,
+        ariaLabel: `Stacked area chart of the generation mix over the last ${label}`,
     }));
+    const columns = FUELS.slice().reverse();
     tableView($('#mix-table'), [
         { label: daily ? 'Day' : 'Time', value: r => formatTime(r.time, daily) },
-        ...FUELS.map(fuel => ({ label: fuel.label, numeric: true, value: r => (r[fuel.key] === null ? '–' : `${r[fuel.key].toFixed(1)}%`) })),
+        ...columns.map(fuel => ({ label: fuel.label, numeric: true, value: r => (r[fuel.key] === null ? '–' : `${r[fuel.key].toFixed(1)}%`) })),
     ], series.times.map((time, i) => ({ time, ...Object.fromEntries(FUELS.map(f => [f.key, series.fuels[f.key][i]])) })).reverse());
+}
+
+// The legend, doubling as the period's summary: each source's average share,
+// as a number and a bar, in the order the chart stacks them.
+function mixSummary(list, averages) {
+    list.replaceChildren();
+    const largest = Math.max(0, ...averages.map(a => a.share ?? 0));
+    for (const { key, label, share } of averages) {
+        const li = document.createElement('li');
+        const swatch = document.createElement('span');
+        swatch.className = 'legend__key legend__key--rect';
+        swatch.style.background = `var(--fuel-${key})`;
+        const name = document.createElement('span');
+        name.className = 'mix-summary__label';
+        name.textContent = label;
+        const value = document.createElement('strong');
+        value.className = 'mix-summary__value';
+        value.textContent = share === null ? '–' : `${share < 10 ? share.toFixed(1) : Math.round(share)}%`;
+        const track = document.createElement('span');
+        track.className = 'mix-summary__track';
+        const bar = document.createElement('span');
+        bar.className = 'mix-summary__bar';
+        bar.style.background = `var(--fuel-${key})`;
+        bar.style.width = `${largest && share ? (share / largest) * 100 : 0}%`;
+        track.append(bar);
+        li.append(swatch, name, value, track);
+        list.append(li);
+    }
 }
 
 function renderAccuracy() {

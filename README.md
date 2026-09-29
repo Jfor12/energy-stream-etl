@@ -28,7 +28,7 @@ Reruns are safe, for two reasons. Rows are upserted on a unique hour, so nothing
 
 Backfills (`--days`) save each day as soon as it is fetched, in a single database round trip. If the API keeps failing on one day, that day is skipped and listed in `etl_runs`, and the run shows red. Everything else is kept, and a rerun fills in the gap.
 
-**Forecasting** (`forecast.py`, every 3 hours). It works on the latest complete hour:
+**Forecasting** (`forecast.py`, every 3 hours). GitHub often starts scheduled runs hours late, so the forecast job runs the collection first rather than relying on the hourly run. It works on the latest complete hour:
 - Takes the last 14 days of carbon intensity and the wind, solar, gas and nuclear shares.
 - Forecasts the next 24 hours of each with [`amazon/chronos-bolt-small`](https://huggingface.co/amazon/chronos-bolt-small), a pretrained time-series model that runs on the Actions CPU.
 - Stores the median as `predicted_value`, and the 10th and 90th percentiles as `predicted_low` and `predicted_high` (an 80% prediction interval).
@@ -67,7 +67,7 @@ The page shows:
 - carbon intensity now, compared with the same hour yesterday;
 - wind, solar, low-carbon and gas shares;
 - intensity over 24 hours to 12 months, with the latest 24-hour forecast and its 80% range;
-- the generation mix;
+- the generation mix, with each source's average share for the period (hourly up to 7 days, daily beyond);
 - forecast accuracy against the naive baseline;
 - pipeline health.
 

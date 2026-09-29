@@ -2,7 +2,7 @@ name: Grid Forecast
 
 on:
   schedule:
-    - cron: '37 */3 * * *'  # every 3 hours, after that hour's ETL run
+    - cron: '37 */3 * * *'  # every 3 hours; collects the latest readings itself first
   workflow_dispatch:
     inputs:
       dry_run:
@@ -37,6 +37,17 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: hf-chronos-bolt-small
+
+      # GitHub often starts scheduled runs hours late, or skips them, so the
+      # hourly ETL can't be relied on to have run just before this. Collecting
+      # first means the forecast starts from the latest hour. If it fails, the
+      # forecast still runs when the data is recent enough (and refuses when not).
+      - name: Collect the latest readings first
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python etl_job.py $DRY_RUN
 
       - name: Forecast the next 24 hours
         env:
