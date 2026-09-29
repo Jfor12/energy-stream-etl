@@ -59,7 +59,9 @@ All schema changes live in `sql/schema.sql`. They are idempotent, applied at the
 
 ## Dashboard
 
-`dashboard/` is a static page (plain HTML, CSS and JavaScript, with no build step) published to GitHub Pages by `.github/workflows/pages.yml`. It reads live data in the browser from Supabase's REST API, using the public anon key. The key can only read the `dashboard_*` views. `sql/public_api.sql` closes everything else to it, including the raw tables, `etl_runs` with its error messages, and the older views, and switches on row-level security.
+`dashboard/` is a static page (plain HTML, CSS and JavaScript, with no build step) published to GitHub Pages by `.github/workflows/pages.yml`. It reads live data in the browser from Supabase's REST API, using the public anon key. The key can only read the `dashboard_*` views. `sql/public_api.sql` closes everything else to it, including the raw tables, `etl_runs` with its error messages, and the older views, and locks the raw tables with row-level security.
+
+The public views run with the reader's permissions, as Supabase's security advisor requires. Each just passes on a view of the same name in the `dashboard_private` schema, which does the work with its owner's permissions; Supabase's API doesn't serve that schema, so keep it off the list of exposed schemas.
 
 The page shows:
 - carbon intensity now, compared with the same hour yesterday;

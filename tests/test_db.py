@@ -323,7 +323,25 @@ class TestPublicApi:
                 self.as_anon(db, f"SELECT * FROM {private} LIMIT 1")
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             self.as_anon(db, "INSERT INTO grid_telemetry (timestamp) VALUES (NOW()) RETURNING id")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            self.as_anon(db, "INSERT INTO dashboard_pipeline (status) VALUES ('x')")
         assert db.execute("SELECT relrowsecurity FROM pg_class WHERE relname = 'grid_telemetry'").fetchone() == (True,)
+
+    def test_what_supabases_security_advisor_checks(self, db, now):
+        """No exposed view runs with its owner's permissions (security_definer_view),
+        and every locked table has a policy (rls_enabled_no_policy)."""
+        fill_history(db, now)
+        assert forecast.run(TEST_DATABASE_URL, now=now, pipeline=FakeModel(), model_id="fake") == 0
+        options = dict(db.execute(
+            "SELECT relname, reloptions::text FROM pg_class WHERE relnamespace = 'public'::regnamespace "
+            "AND relname LIKE 'dashboard\\_%' AND relkind = 'v'").fetchall())
+        assert len(options) == 5 and all("security_invoker=true" in (o or "") for o in options.values())
+        policies = db.execute("SELECT tablename, permissive FROM pg_policies "
+                              "WHERE policyname = 'No public access' ORDER BY tablename").fetchall()
+        assert policies == [("etl_runs", "RESTRICTIVE"), ("grid_predictions", "RESTRICTIVE"),
+                            ("grid_telemetry", "RESTRICTIVE")]
+        etl_job.ensure_schema(db)  # applying it all again is safe
+        assert self.as_anon(db, "SELECT COUNT(*) FROM dashboard_hourly")[0][0] > 0
 
     def test_views_serve_what_the_dashboard_draws(self, db, now, monkeypatch):
         monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
@@ -350,6 +368,7 @@ class TestPublicApi:
         db.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'etl_owner') "
                    "THEN CREATE ROLE etl_owner LOGIN PASSWORD 'etl_owner'; END IF; END $$")
         db.execute("GRANT CREATE, USAGE ON SCHEMA public TO etl_owner")
+        db.execute("DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO etl_owner', current_database()); END $$")
         for table in ("grid_telemetry", "grid_predictions", "etl_runs"):
             db.execute(f"ALTER TABLE {table} OWNER TO etl_owner")
         for view in ("grid_predictions_extended", "actual_vs_predicted", "actual_vs_predicted_24h",
