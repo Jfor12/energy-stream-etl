@@ -267,7 +267,8 @@ export function stackedArea(container, { times, layers, height = 280, daily = fa
         marginFor: () => ({ top: 12, right: 16, bottom: 30, left: 44 }),
         yDomain: [0, 100],
         yFormat: v => `${v}%`,
-        draw({ svg, x, y }) {
+        draw({ svg, x, y, plotW }) {
+            const areaClass = times.length > plotW / 4 ? 'chart__area chart__area--dense' : 'chart__area';
             // Normalise each time to 100% so rounding never leaves a sliver.
             let base = times.map(() => 0);
             for (const layer of layers) {
@@ -284,7 +285,7 @@ export function stackedArea(container, { times, layers, height = 280, daily = fa
                 };
                 times.forEach((_, i) => (present[i] ? run.push(i) : flush()));
                 flush();
-                el('path', { d, class: 'chart__area', style: `fill: var(${layer.color})` }, svg);
+                el('path', { d, class: areaClass, style: `fill: var(${layer.color})` }, svg);
                 base = top;
             }
         },

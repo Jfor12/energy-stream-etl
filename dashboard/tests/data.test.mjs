@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    createClient, summarise, toSeries, intensityForecast, pipelineStatus, skillRows, niceTicks, dayString,
+    createClient, summarise, toSeries, intensityForecast, pipelineStatus, skillRows, niceTicks, dayString, mixAverages, FUELS,
 } from '../data.js';
 
 const hour = t => new Date(Date.UTC(2026, 8, 25, t)).toISOString();
@@ -91,4 +91,27 @@ test('axis ticks are round numbers covering the data', () => {
     assert.deepEqual(niceTicks(0, 237), [0, 100, 200, 300]);
     assert.deepEqual(niceTicks(0, 100), [0, 25, 50, 75, 100]);
     assert.equal(dayString(new Date('2026-09-25T10:00:00Z'), 1), '2026-09-24');
+});
+
+test('mix averages: shares over the period add up to 100, days weighted by their hours', () => {
+    const hourly = toSeries([row(1, 150), row(2, 150, { wind: 50, gas: 5 })], 'timestamp');
+    const shares = Object.fromEntries(mixAverages(hourly).map(m => [m.key, m.share]));
+    assert.equal(Math.round(shares.wind * 10) / 10, 40);
+    assert.equal(Math.round(Object.values(shares).reduce((a, b) => a + b) * 1e6) / 1e6, 100);
+    assert.deepEqual(mixAverages(hourly).map(m => m.key), FUELS.map(f => f.key));
+
+    const daily = toSeries([
+        { day: '2026-09-24', hours: 23, wind: 20, gas: 30, nuclear: 15, solar: 10, imports: 8, biomass: 7, other: 10 },
+        { day: '2026-09-25', hours: 1, wind: 44, gas: 6, nuclear: 15, solar: 10, imports: 8, biomass: 7, other: 10 },
+    ], 'day');
+    assert.equal(mixAverages(daily).find(m => m.key === 'wind').share, 21);  // (20·23 + 44·1) / 24
+
+    assert.deepEqual(mixAverages(toSeries([], 'timestamp')), []);
+    const oldRows = toSeries([row(1, 150, { imports: null, biomass: null, other: null })], 'timestamp');
+    assert.equal(mixAverages(oldRows).find(m => m.key === 'imports').share, null);
+});
+
+test('the stack keeps wind and gas on its edges', () => {
+    assert.equal(FUELS[0].key, 'wind');
+    assert.equal(FUELS[FUELS.length - 1].key, 'gas');
 });

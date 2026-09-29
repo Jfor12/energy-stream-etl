@@ -2,16 +2,19 @@
 // calculations the page makes from them. No DOM here, so it runs under
 // `node --test` too.
 
-// Fuels in the order they stack and take colours (validated as a set: see
-// styles.css). Hydro, coal and "other" arrive as one "other" column.
+// Fuels in the order they stack, bottom to top (and the order their colours
+// were validated in: see styles.css). Wind and gas, the two that swing most,
+// sit on the chart's bottom and top edges so both read against a straight
+// line; the steadier sources sit between them. Hydro, coal and "other" arrive
+// as one "other" column.
 export const FUELS = [
     { key: 'wind', label: 'Wind' },
-    { key: 'gas', label: 'Gas' },
     { key: 'nuclear', label: 'Nuclear' },
     { key: 'solar', label: 'Solar' },
-    { key: 'imports', label: 'Imports' },
     { key: 'biomass', label: 'Biomass' },
+    { key: 'imports', label: 'Imports' },
     { key: 'other', label: 'Hydro, coal and other' },
+    { key: 'gas', label: 'Gas' },
 ];
 
 export const RANGES = {
@@ -76,8 +79,28 @@ export function toSeries(rows, timeKey) {
         intensity: rows.map(row => num(row.intensity)),
         intensityMin: rows.map(row => num(row.intensity_min)),
         intensityMax: rows.map(row => num(row.intensity_max)),
+        hours: rows.map(row => num(row.hours)),
         fuels,
     };
+}
+
+// Each fuel's average share over a series, scaled so the shares add up to
+// 100 (as the stacked chart does). Daily rows count by the hours they cover.
+// Returns [{ key, label, share }] in FUELS order, or [] with no data.
+export function mixAverages(series) {
+    const means = FUELS.map(({ key, label }) => {
+        let sum = 0, weight = 0;
+        series.fuels[key].forEach((value, i) => {
+            if (value === null) return;
+            const w = series.hours?.[i] ?? 1;
+            sum += value * w;
+            weight += w;
+        });
+        return { key, label, mean: weight ? sum / weight : null };
+    });
+    const total = means.reduce((sum, m) => sum + (m.mean ?? 0), 0);
+    if (!total) return [];
+    return means.map(({ key, label, mean }) => ({ key, label, share: mean === null ? null : (mean / total) * 100 }));
 }
 
 // The headline: the latest hour, the same hour a day earlier, and the shares.
