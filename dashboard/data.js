@@ -208,8 +208,20 @@ export function pipelineStatus(runs, now, latestReading = undefined) {
         const fresh = freshness(latestReading, etlRun, now);
         etl = { state: { fresh: 'good', delayed: 'warning', failed: 'critical' }[fresh.state], label: fresh.label, run: etlRun, freshness: fresh };
     }
-    // The forecast runs every three hours; GitHub runs scheduled jobs late or skips them, so allow some slack.
-    return { etl, forecast: describe(latestOf('forecast'), 12) };
+    return { etl, forecast: forecastStatus(latestOf('forecast'), now) };
+}
+
+// The forecast is scheduled every three hours. Half as long again without a run is late; a day, or a failed
+// run, is failed. (Until 31 Oct 2026 it allowed 12 hours, so the card said "Running normally" at 6 hours.)
+export const FORECAST_EVERY_HOURS = 3;
+export function forecastStatus(run, now) {
+    if (!run) return { state: 'unknown', label: 'No runs in the last 14 days', run: null };
+    const hours = (now - new Date(run.run_timestamp)) / 3600000;
+    if (run.status === 'failure') return { state: 'critical', label: 'Last run failed', run };
+    if (hours > 24) return { state: 'critical', label: `No run for ${Math.floor(hours)} hours`, run };
+    if (hours > FORECAST_EVERY_HOURS * 1.5) return { state: 'warning', label: `Late: no run for ${Math.floor(hours)} hours`, run };
+    if (run.status === 'partial') return { state: 'warning', label: 'Last run finished with warnings', run };
+    return { state: 'good', label: 'Running normally', run };
 }
 
 // One plain sentence for the intensity forecast's skill, e.g. "The model's forecasts are about 21% closer

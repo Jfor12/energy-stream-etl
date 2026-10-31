@@ -73,6 +73,8 @@ The page shows:
 
 Every chart has a table view, tooltips that work with a mouse, a tap or the keyboard, and light and dark themes.
 
+**The forecasting job** is scheduled every 3 hours: the card calls it late after 4½ hours without a run, and failed after a day or a failed run. Settings are stored as `grid:theme` and `grid:range` (the apps on jfor12.github.io share one storage area).
+
 **How fresh the data is** comes from one rule (`freshness` in `dashboard/data.js`), used by both the banner and the Pipeline card: a reading up to 90 minutes old is fresh; older than that, the data is delayed; more than 12 hours old, or a failed last collection run, counts as failed. The API publishes each half hour within minutes, so a delay means the collection job ran late: GitHub often starts the hourly schedule hours late or skips runs.
 
 To set it up:
