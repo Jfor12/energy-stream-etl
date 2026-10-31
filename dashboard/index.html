@@ -27,7 +27,10 @@
       <p class="eyebrow">Great Britain’s electricity</p>
       <h1>How clean is the grid?</h1>
     </div>
-    <button type="button" class="button button--quiet" id="theme-toggle" aria-pressed="false">Dark mode</button>
+    <button type="button" class="theme" id="theme-toggle" aria-pressed="false" aria-label="Dark mode" title="Dark mode is off">
+      <svg class="theme__sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2M12 19.5v2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M2.5 12h2M19.5 12h2M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+      <svg class="theme__moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>
+    </button>
   </div>
 </header>
 
@@ -37,23 +40,38 @@
   <section class="now" aria-labelledby="now-title">
     <h2 id="now-title" class="vh">Right now</h2>
     <div class="hero card">
-      <p class="hero__label">Carbon intensity, <span id="now-time">–</span></p>
-      <p class="hero__value"><span id="now-value">–</span><span class="hero__unit">gCO₂/kWh</span></p>
+      <p class="hero__label">Carbon intensity · <span id="now-time">latest reading –</span></p>
+      <div class="hero__row">
+        <p class="hero__value"><span id="now-value">–</span><span class="hero__unit">gCO₂/kWh</span></p>
+        <p class="hero__avg"><span class="hero__avg-label">30-day average</span> <strong id="now-average">–</strong> <span class="hero__avg-unit">gCO₂/kWh</span></p>
+      </div>
+      <p class="verdict" id="now-band" hidden></p>
+      <p class="compare" id="now-compare"></p>
       <p class="delta" id="now-delta"></p>
     </div>
-    <ul class="tiles">
-      <li class="tile card"><p class="tile__label">Wind and solar</p><p class="tile__value" id="tile-windsolar">–</p><p class="tile__note">share of generation</p></li>
-      <li class="tile card"><p class="tile__label">Low carbon</p><p class="tile__value" id="tile-lowcarbon">–</p><p class="tile__note">wind, solar, nuclear and biomass</p></li>
-      <li class="tile card"><p class="tile__label">Gas</p><p class="tile__value" id="tile-gas">–</p><p class="tile__note">share of generation</p></li>
-      <li class="tile card"><p class="tile__label">30-day average</p><p class="tile__value" id="tile-average">–</p><p class="tile__note">gCO₂/kWh</p></li>
-    </ul>
+    <div class="card mixnow" role="group" aria-labelledby="mixnow-title">
+      <p class="mixnow__title" id="mixnow-title">Generation mix, latest reading</p>
+      <div class="share">
+        <p class="share__head"><span>Low carbon</span><strong id="tile-lowcarbon">–</strong></p>
+        <div class="share__bar" aria-hidden="true"><span class="share__fill share__fill--ws" id="bar-windsolar"></span><span class="share__fill share__fill--lc" id="bar-lowcarbon"></span></div>
+        <p class="share__note">Wind, solar, nuclear and biomass</p>
+        <p class="share__part"><span class="share__swatch" aria-hidden="true"></span><span>of which wind and solar</span><strong id="tile-windsolar">–</strong></p>
+      </div>
+      <div class="share">
+        <p class="share__head"><span>Gas</span><strong id="tile-gas">–</strong></p>
+        <div class="share__bar" aria-hidden="true"><span class="share__fill share__fill--gas" id="bar-gas"></span></div>
+      </div>
+    </div>
   </section>
 
-  <div class="filters" role="group" aria-label="Time range for the charts">
-    <button type="button" class="filter" data-range="24h" aria-pressed="false">24 hours</button>
-    <button type="button" class="filter" data-range="7d" aria-pressed="true">7 days</button>
-    <button type="button" class="filter" data-range="30d" aria-pressed="false">30 days</button>
-    <button type="button" class="filter" data-range="12m" aria-pressed="false">12 months</button>
+  <div class="range" role="group" aria-labelledby="range-label">
+    <p class="range__label" id="range-label">Time range for the charts below</p>
+    <div class="filters">
+      <button type="button" class="filter" data-range="24h" aria-pressed="false">24 hours</button>
+      <button type="button" class="filter" data-range="7d" aria-pressed="true">7 days</button>
+      <button type="button" class="filter" data-range="30d" aria-pressed="false">30 days</button>
+      <button type="button" class="filter" data-range="12m" aria-pressed="false">12 months</button>
+    </div>
   </div>
 
   <section class="card chart-card" aria-labelledby="intensity-title">
@@ -61,12 +79,13 @@
     <p class="card__sub" id="intensity-sub">Grams of CO₂ per kilowatt-hour of electricity generated.</p>
     <ul class="legend" id="intensity-legend"></ul>
     <div class="chart" id="intensity-chart"></div>
+    <p class="chart-hint">Hover or tap the chart for exact values; with a keyboard, select it and use the arrow keys.</p>
     <details class="table-view" id="intensity-table"><summary>Show as a table</summary><div class="table-wrap"></div></details>
   </section>
 
   <section class="card chart-card" aria-labelledby="mix-title">
-    <h2 id="mix-title">Where the power comes from</h2>
-    <p class="card__sub" id="mix-sub">Share of Great Britain’s generation by source.</p>
+    <h2 id="mix-title">Electricity supply</h2>
+    <p class="card__sub" id="mix-sub">Share of Great Britain’s electricity supply by source.</p>
     <div class="mix">
       <div class="mix__summary">
         <p class="mix__summary-title" id="mix-summary-title">Average</p>
@@ -74,14 +93,17 @@
       </div>
       <div class="chart" id="mix-chart"></div>
     </div>
+    <p class="chart-hint">Hover or tap the chart for exact values; with a keyboard, select it and use the arrow keys.</p>
+    <p class="note">Imports come from other countries through interconnectors: they are part of Great Britain’s supply, not its own generation.</p>
     <details class="table-view" id="mix-table"><summary>Show as a table</summary><div class="table-wrap"></div></details>
   </section>
 
   <div class="columns">
     <section class="card" aria-labelledby="accuracy-title">
       <h2 id="accuracy-title">How good is the forecast?</h2>
-      <p class="card__sub">Every three hours, <a href="https://huggingface.co/amazon/chronos-bolt-small">Chronos-Bolt</a> forecasts the next 24 hours. Its average error is compared with simply repeating the value from 24 hours earlier.</p>
-      <div class="table-wrap" id="accuracy"></div>
+      <p class="card__sub">Every three hours, a forecasting model (Chronos-Bolt) forecasts the next 24 hours. Its average error is compared with a simple forecast: repeating the value from 24 hours earlier.</p>
+      <p class="skill-summary" id="skill-summary"></p>
+      <div class="accuracy" id="accuracy"></div>
     </section>
 
     <section class="card" aria-labelledby="pipeline-title">
@@ -94,7 +116,7 @@
 
 <footer class="foot">
   <div class="wrap foot__inner">
-    <p>Data: <a href="https://carbonintensity.org.uk/">Carbon Intensity API</a> (National Energy System Operator), collected hourly. Forecasts by Amazon’s Chronos-Bolt. Times are UK time.</p>
+    <p>Data: <a href="https://carbonintensity.org.uk/">Carbon Intensity API</a> (National Energy System Operator), collected hourly. Forecasts by Amazon’s <a href="https://huggingface.co/amazon/chronos-bolt-small">Chronos-Bolt</a>. Times are UK time.</p>
     <p>Made by <a href="https://jacopofornesi.co.uk/">Jacopo Fornesi</a> · <a href="https://github.com/Jfor12/energy-stream-etl">Source on GitHub</a></p>
   </div>
 </footer>

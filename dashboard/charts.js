@@ -1,6 +1,7 @@
 // Small SVG charts: a line chart (with optional bands) and a 100% stacked area
 // chart. Both redraw on resize and share one crosshair + tooltip that works
-// with a pointer or the keyboard (focus the chart, then use the arrow keys).
+// with a mouse (hover), a touch screen (tap; tap elsewhere to close) or the
+// keyboard (focus the chart, then use the arrow keys; values are announced).
 // Colours are CSS custom properties, so light and dark mode need no redraw.
 
 import { niceTicks } from './data.js';
@@ -62,8 +63,12 @@ function timeTicks(start, end, width) {
 }
 
 // Shared frame: sizes, axes, crosshair and tooltip. `draw` paints the data.
-function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, times, draw, tooltip, daily, ariaLabel }) {
+function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, times, domain, draw, tooltip, daily, ariaLabel }) {
     let index = null;
+    let hide = () => {};
+    // A tap outside the chart closes a tooltip opened by touch.
+    const outside = event => { if (!container.contains(event.target)) hide(); };
+    document.addEventListener('pointerdown', outside);
 
     function render() {
         container.replaceChildren();
@@ -73,8 +78,9 @@ function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, time
         const margin = marginFor(width);
         const plotW = width - margin.left - margin.right;
         const plotH = height - margin.top - margin.bottom;
-        const start = times[0];
-        const end = times[times.length - 1];
+        // The time axis can reach past the data (to the current time), so a gap since the latest reading shows.
+        const start = domain ? domain[0] : times[0];
+        const end = domain ? domain[1] : times[times.length - 1];
         const x = t => margin.left + (end - start ? ((t - start) / (end - start)) * plotW : plotW / 2);
         const ticks = niceTicks(yDomain[0], yDomain[1]);
         const [y0, y1] = [ticks[0], ticks[ticks.length - 1]];
@@ -93,7 +99,7 @@ function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, time
             text.textContent = yFormat(tick);
         }
         for (const tick of timeTicks(start, end, plotW)) {
-            const text = el('text', { x: x(tick.time), y: height - margin.bottom + 18, class: 'chart__tick', 'text-anchor': 'middle' }, grid);
+            const text = el('text', { x: x(tick.time), y: height - margin.bottom + 20, class: 'chart__tick', 'text-anchor': 'middle' }, grid);
             text.textContent = tick.label;
         }
 
@@ -107,6 +113,11 @@ function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, time
         tip.className = 'chart__tooltip';
         tip.hidden = true;
         container.append(tip);
+        // Keyboard users hear the values they move to.
+        const live = document.createElement('p');
+        live.className = 'vh';
+        live.setAttribute('aria-live', 'polite');
+        container.append(live);
 
         function show(i) {
             if (i === null) { cross.setAttribute('visibility', 'hidden'); tip.hidden = true; return; }
@@ -116,6 +127,7 @@ function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, time
             line.setAttribute('x1', cx); line.setAttribute('x2', cx);
             dots.replaceChildren();
             const { title, rows } = tooltip(i);
+            show.last = `${title || formatTime(t, daily)}: ${rows.map(row => `${row.label} ${row.text}`).join(', ')}`;
             for (const row of rows) {
                 if (row.value === null || row.y === undefined) continue;
                 el('circle', { cx, cy: y(row.y), r: 4, class: 'chart__dot', style: `fill: var(${row.color})` }, dots);
@@ -157,9 +169,12 @@ function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, time
             return best;
         }
 
+        hide = () => show(null);
         svg.addEventListener('pointermove', event => show(nearest(event.clientX)));
-        svg.addEventListener('pointerleave', () => show(null));
-        svg.addEventListener('focus', () => show(index ?? times.length - 1));
+        svg.addEventListener('pointerdown', event => show(nearest(event.clientX)));
+        // A mouse leaving closes the tooltip; on a touch screen it stays until you tap elsewhere.
+        svg.addEventListener('pointerleave', event => { if (event.pointerType === 'mouse') show(null); });
+        svg.addEventListener('focus', () => { show(index ?? times.length - 1); live.textContent = show.last; });
         svg.addEventListener('blur', () => show(null));
         svg.addEventListener('keydown', event => {
             const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
@@ -168,6 +183,7 @@ function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, time
             event.preventDefault();
             const next = Math.min(times.length - 1, Math.max(0, (index ?? times.length - 1) + moves[event.key]));
             show(next);
+            live.textContent = show.last;
         });
         if (index !== null && document.activeElement === svg) show(index);
     }
@@ -178,7 +194,7 @@ function frame(container, { height: maxHeight, marginFor, yDomain, yFormat, time
         if (container.clientWidth !== lastWidth) { lastWidth = container.clientWidth; render(); }
     });
     observer.observe(container);
-    return { destroy: () => observer.disconnect() };
+    return { destroy: () => { observer.disconnect(); document.removeEventListener('pointerdown', outside); } };
 }
 
 function pathFor(points, x, y) {
@@ -203,9 +219,10 @@ function bandFor(points, x, y) {
 /**
  * series: [{ label, color: '--css-var', points: [{time, value}] }]
  * bands:  [{ color, points: [{time, low, high}] }]
- * marker: a Date to mark with a "now" line
+ * markers: [{ time, label, side: 'left' | 'right' }]: vertical lines, labelled on that side of the line
+ * extendTo: a Date the time axis should reach even with no data there (the current time)
  */
-export function lineChart(container, { series, bands = [], marker, height = 280, yFormat = String, valueText = String, daily = false, ariaLabel }) {
+export function lineChart(container, { series, bands = [], markers = [], extendTo = null, height = 280, yFormat = String, valueText = String, daily = false, ariaLabel }) {
     const allTimes = [...new Set(series.flatMap(s => s.points.map(p => p.time.getTime())))].sort((a, b) => a - b).map(t => new Date(t));
     const values = [
         ...series.flatMap(s => s.points.map(p => p.value)),
@@ -218,21 +235,33 @@ export function lineChart(container, { series, bands = [], marker, height = 280,
         ? series.filter(s => s.points.some(p => p.value !== null && p.time.getTime() === endTime))
         : []);
 
+    const first = allTimes[0];
+    const last = new Date(Math.max(endTime, extendTo ? extendTo.getTime() : 0));
     return frame(container, {
-        height, daily, ariaLabel, times: allTimes,
-        // Room for end labels only where they're drawn (wide charts, lines that reach the right edge).
-        marginFor: width => ({ top: 12, right: labelled(width).length ? 76 : 16, bottom: 30, left: 44 }),
+        height, daily, ariaLabel, times: allTimes, domain: [first, last],
+        // Room for end labels only where they're drawn (wide charts, lines that reach the right edge), and
+        // at the top for marker labels.
+        // and at the top for marker labels, one row each so they never overlap.
+        marginFor: width => ({ top: 12 + 16 * markers.length, right: labelled(width).length ? 80 : 16, bottom: 32, left: 48 }),
         yDomain: [Math.min(0, ...values), Math.max(...values)],
         yFormat,
         draw({ svg, x, y, margin, plotH, width }) {
             for (const band of bands) {
                 el('path', { d: bandFor(band.points, x, y), class: 'chart__band', style: `fill: var(${band.color})` }, svg);
             }
-            if (marker && marker >= allTimes[0] && marker <= allTimes[allTimes.length - 1]) {
-                el('line', { x1: x(marker), x2: x(marker), y1: margin.top, y2: margin.top + plotH, class: 'chart__now' }, svg);
-                const text = el('text', { x: x(marker) + 4, y: margin.top + 10, class: 'chart__tick' }, svg);
-                text.textContent = 'Now';
-            }
+            markers.forEach((marker, row) => {
+                if (marker.time < first || marker.time > last) return;
+                const mx = x(marker.time);
+                const labelY = 12 + 16 * row;
+                el('line', { x1: mx, x2: mx, y1: labelY + 3, y2: margin.top + plotH, class: `chart__marker chart__marker--${marker.kind || 'latest'}` }, svg);
+                const text = el('text', { y: labelY, 'dominant-baseline': 'middle', class: 'chart__marker-label' }, svg);
+                text.textContent = marker.label;
+                // Keep the label inside the chart: flip it to the other side of its line if it would run off.
+                const labelW = marker.label.length * 7.2;
+                const left = marker.side === 'left' ? mx - labelW - 4 >= 0 : mx + labelW + 4 > width;
+                text.setAttribute('x', left ? mx - 4 : mx + 4);
+                text.setAttribute('text-anchor', left ? 'end' : 'start');
+            });
             const withLabels = labelled(width);
             for (const s of series) {
                 el('path', { d: pathFor(s.points, x, y), class: 'chart__line', style: `stroke: var(${s.color})` }, svg);

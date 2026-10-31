@@ -347,10 +347,10 @@ class TestPublicApi:
         monkeypatch.setattr(etl_job, "get_json", fake_api(now.replace(minute=0)))
         assert etl_job.run_pipeline(TEST_DATABASE_URL, now=now) == 0
         latest = db.execute("SELECT * FROM dashboard_hourly ORDER BY timestamp DESC LIMIT 1").fetchone()
-        # timestamp, intensity, is_actual, wind, gas, nuclear, solar, imports, biomass, other
-        assert latest[1:] == (150, True, 35.0, 30.0, 15.0, 5.0, 7.5, 6.0, 1.5)
-        day = db.execute("SELECT intensity, wind, other, hours FROM dashboard_daily ORDER BY day DESC LIMIT 1").fetchone()
-        assert day[0] == 150 and float(day[1]) == 35.0 and float(day[2]) == 1.5
+        # timestamp, intensity, is_actual, wind, gas, nuclear, solar, imports, biomass, other (hydro + other), coal, index
+        assert latest[1:] == (150, True, 35.0, 30.0, 15.0, 5.0, 7.5, 6.0, 1.5, 0.0, "moderate")
+        day = db.execute("SELECT intensity, wind, other, hours, coal FROM dashboard_daily ORDER BY day DESC LIMIT 1").fetchone()
+        assert day[0] == 150 and float(day[1]) == 35.0 and float(day[2]) == 1.5 and float(day[4]) == 0.0
         runs_seen = db.execute("SELECT job, status, rows_inserted FROM dashboard_pipeline").fetchall()
         assert runs_seen == [("etl", "success", 24)]
 

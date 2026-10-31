@@ -30,6 +30,8 @@ logger = logging.getLogger("grid_etl")
 API_URL = "https://api.carbonintensity.org.uk"
 FUELS = ("gas", "coal", "nuclear", "wind", "solar", "hydro", "biomass", "imports", "other")
 HALF_HOUR = timedelta(minutes=30)
+# The API's intensity index, lowest to highest. Its bands move each year as the grid gets cleaner.
+INDEX_LEVELS = ("very low", "low", "moderate", "high", "very high")
 SQL_DIR = Path(__file__).resolve().parent / "sql"
 
 # Retry configuration
@@ -119,7 +121,8 @@ def validate_intensity_entry(entry: dict) -> dict:
     forecast = _number(intensity.get("forecast"), "forecast intensity", 0, 1000)
     if actual is None and forecast is None:
         raise ValidationError(f"no intensity value for {api_time(start)}")
-    return {"start": start, "actual": actual, "forecast": forecast}
+    index = str(intensity.get("index") or "").strip().lower()
+    return {"start": start, "actual": actual, "forecast": forecast, "index": index if index in INDEX_LEVELS else None}
 
 
 def validate_generation_entry(entry: dict) -> dict:
@@ -175,11 +178,18 @@ def build_hourly_rows(intensity: Dict[datetime, dict], generation: Dict[datetime
             "intensity_forecast": round(sum(forecasts) / len(forecasts)) if forecasts else None,
             "intensity_is_actual": all(intensity[s]["actual"] is not None for s in starts),
             "half_hours": len(starts),
+            "intensity_index": hour_index([intensity[s].get("index") for s in starts]),
         }
         for fuel in FUELS:
             row[f"fuel_{fuel}_perc"] = round(sum(generation[s]["mix"][fuel] for s in starts) / len(starts), 2)
         rows.append(row)
     return rows
+
+
+def hour_index(levels) -> Optional[str]:
+    """The hour's index from its half hours' (when they differ, the higher one, as the API would for the mean)."""
+    known = [INDEX_LEVELS.index(level) for level in levels if level in INDEX_LEVELS]
+    return INDEX_LEVELS[max(known)] if known else None
 
 
 def fetch_day(end: datetime) -> tuple:
@@ -193,7 +203,7 @@ def fetch_day(end: datetime) -> tuple:
     return intensity, generation, rejected_i + rejected_g
 
 
-COLUMNS = ["timestamp", "overall_intensity", "intensity_forecast", "intensity_is_actual", "half_hours"] + [f"fuel_{f}_perc" for f in FUELS]
+COLUMNS = ["timestamp", "overall_intensity", "intensity_forecast", "intensity_is_actual", "half_hours"] + [f"fuel_{f}_perc" for f in FUELS] + ["intensity_index"]
 VALUE_COLUMNS = COLUMNS[1:]
 
 UPSERT_BATCH = 500  # rows per statement, well under Postgres's parameter limit
