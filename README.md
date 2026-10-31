@@ -51,7 +51,7 @@ All schema changes live in `sql/schema.sql`. They are idempotent, applied at the
 
 | Table / view | What it holds |
 |---|---|
-| `grid_telemetry` | One row per hour: `overall_intensity` plus National Grid's own `intensity_forecast`, whether the value is measured (`intensity_is_actual`), and the share of each of gas, coal, nuclear, wind, solar, hydro, biomass, imports and other. |
+| `grid_telemetry` | One row per hour: `overall_intensity` plus National Grid's own `intensity_forecast`, whether the value is measured (`intensity_is_actual`), the API's rating of the hour (`intensity_index`: very low to very high), and the share of each of gas, coal, nuclear, wind, solar, hydro, biomass, imports and other. |
 | `grid_predictions` | Forecasts, with `model`, `forecast_origin` and the 80% interval. Rows with no `model` came from an earlier Edge Function (see below). |
 | `etl_runs` | One row per run of either job. |
 | `forecast_accuracy`, `forecast_skill` | Forecast evaluation, as above. |
@@ -64,14 +64,16 @@ All schema changes live in `sql/schema.sql`. They are idempotent, applied at the
 The public views run with the reader's permissions, as Supabase's security advisor requires. Each just passes on a view of the same name in the `dashboard_private` schema, which does the work with its owner's permissions; Supabase's API doesn't serve that schema, so keep it off the list of exposed schemas.
 
 The page shows:
-- carbon intensity now, compared with the same hour yesterday;
-- wind, solar, low-carbon and gas shares;
-- intensity over 24 hours to 12 months, with the latest 24-hour forecast and its 80% range;
-- the generation mix, with each source's average share for the period (hourly up to 7 days, daily beyond);
-- forecast accuracy against the naive baseline;
+- the latest reading, with the API's rating (very low to very high), compared first with the 30-day average and then with the same hour yesterday;
+- the generation mix at that hour: low carbon, with wind and solar shown as part of it, and gas;
+- intensity over 24 hours to 12 months, with the latest 24-hour forecast and its 80% range, the latest reading and the current time marked;
+- the electricity supply mix (generation plus imports, with coal on its own), with each source's average share for the period (hourly up to 7 days, daily beyond);
+- forecast accuracy against the naive baseline, with a one-line summary;
 - pipeline health.
 
-Every chart has a table view, keyboard-accessible tooltips, and light and dark themes.
+Every chart has a table view, tooltips that work with a mouse, a tap or the keyboard, and light and dark themes.
+
+**How fresh the data is** comes from one rule (`freshness` in `dashboard/data.js`), used by both the banner and the Pipeline card: a reading up to 90 minutes old is fresh; older than that, the data is delayed; more than 12 hours old, or a failed last collection run, counts as failed. The API publishes each half hour within minutes, so a delay means the collection job ran late: GitHub often starts the hourly schedule hours late or skips runs.
 
 To set it up:
 1. **Enable Pages:** under Settings → Pages, set Source to **GitHub Actions**.

@@ -21,7 +21,7 @@ class TestParsing:
 
     def test_intensity_entry(self):
         parsed = etl_job.validate_intensity_entry(intensity_entry(T, actual=None, forecast=140))
-        assert parsed == {"start": T, "actual": None, "forecast": 140.0}
+        assert parsed == {"start": T, "actual": None, "forecast": 140.0, "index": "moderate"}
 
     def test_generation_accepts_a_single_object(self):
         # The current-period endpoint returns data as an object, not a list.
@@ -182,3 +182,15 @@ class TestExitCodes:
     def test_days_is_bounded(self):
         with pytest.raises(SystemExit):
             etl_job.main(["--days", "0"])
+
+
+def test_the_api_index_is_kept_per_hour():
+    # Half hours that disagree give the hour the higher level; anything unrecognised is left out.
+    assert etl_job.hour_index(["moderate", "high"]) == "high"
+    assert etl_job.hour_index(["low"]) == "low"
+    assert etl_job.hour_index([None, "nonsense"]) is None
+    from conftest import intensity_entry
+    from datetime import datetime, timezone
+    t = datetime(2026, 10, 31, 6, tzinfo=timezone.utc)
+    assert etl_job.validate_intensity_entry(intensity_entry(t, index="Very High"))["index"] == "very high"
+    assert etl_job.validate_intensity_entry(intensity_entry(t, index=None))["index"] is None

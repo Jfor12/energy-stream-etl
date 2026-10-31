@@ -2,20 +2,62 @@
 // calculations the page makes from them. No DOM here, so it runs under
 // `node --test` too.
 
-// Fuels in the order they stack, bottom to top (and the order their colours
-// were validated in: see styles.css). Wind and gas, the two that swing most,
-// sit on the chart's bottom and top edges so both read against a straight
-// line; the steadier sources sit between them. Hydro, coal and "other" arrive
-// as one "other" column.
+// Fuels in the order they stack, bottom to top, which is also the order the legend, the tooltip and the table
+// list them (top first) and the order their colours were checked in (styles.css). Low-carbon sources at the
+// bottom, wind on the baseline; then imports, which come from other countries; fossil fuels on top, gas on the
+// top edge. Wind and gas swing most, so both read against a straight line. Coal has its own column since
+// 31 Oct 2026; "other" is hydro and the API's "other".
 export const FUELS = [
     { key: 'wind', label: 'Wind' },
-    { key: 'nuclear', label: 'Nuclear' },
     { key: 'solar', label: 'Solar' },
+    { key: 'nuclear', label: 'Nuclear' },
     { key: 'biomass', label: 'Biomass' },
+    { key: 'other', label: 'Hydro and other' },
     { key: 'imports', label: 'Imports' },
-    { key: 'other', label: 'Hydro, coal and other' },
+    { key: 'coal', label: 'Coal' },
     { key: 'gas', label: 'Gas' },
 ];
+
+// The Carbon Intensity API's verdict on a reading. The API sets each hour's index itself (stored since
+// 31 Oct 2026); for hours without one, these bands are what it used through 2026 (seen in its data: low up
+// to 89, moderate 90–169, high 170–229, very high from 230). The API moves the bands each year.
+export const BANDS = [
+    { key: 'very low', label: 'Very low', below: 30 },
+    { key: 'low', label: 'Low', below: 90 },
+    { key: 'moderate', label: 'Moderate', below: 170 },
+    { key: 'high', label: 'High', below: 230 },
+    { key: 'very high', label: 'Very high', below: Infinity },
+];
+
+export function band(intensity, index = null) {
+    const fromApi = BANDS.find(b => b.key === String(index || '').toLowerCase());
+    if (fromApi) return { ...fromApi, fromApi: true };
+    if (intensity === null || intensity === undefined) return null;
+    return { ...BANDS.find(b => intensity < b.below), fromApi: false };
+}
+
+// How fresh the data is, from one rule, so the banner and the Pipeline card always agree.
+// The API publishes each half hour within minutes, and the collection job is scheduled hourly, so a reading
+// up to 90 minutes old is fresh. Older than that, the job is running late (GitHub often starts scheduled
+// runs hours late, or skips them). More than 12 hours, or a failed last run, counts as failed.
+export const FRESH_HOURS = 1.5;
+export const FAILED_HOURS = 12;
+
+export function freshness(latestTime, lastRun, now) {
+    const age = latestTime ? (now - latestTime) / 3600000 : null;
+    const hours = n => `${Math.floor(n)} hour${Math.floor(n) === 1 ? '' : 's'}`;
+    if (age === null) return { state: 'failed', label: 'No readings', message: 'No readings have been collected yet.', age };
+    if (lastRun?.status === 'failure') {
+        return { state: 'failed', label: 'Last run failed', message: `The collection job failed on its last run, so the latest reading is ${hours(age)} old.`, age };
+    }
+    if (age > FAILED_HOURS) {
+        return { state: 'failed', label: `No new data for ${hours(age)}`, message: `No new readings for ${hours(age)}: the collection job isn’t running.`, age };
+    }
+    if (age > FRESH_HOURS) {
+        return { state: 'delayed', label: 'Delayed', message: `The latest reading is ${hours(age)} old: the hourly collection job started late. The next run fills the gap.`, age };
+    }
+    return { state: 'fresh', label: 'Up to date', message: '', age };
+}
 
 export const RANGES = {
     '24h': { label: '24 hours', hours: 24, source: 'hourly' },
@@ -113,6 +155,7 @@ export function summarise(latestRows, dailyRows, now) {
     const share = (...keys) => keys.every(k => num(latest[k]) === null) ? null
         : keys.reduce((sum, k) => sum + (num(latest[k]) || 0), 0);
     const cutoff = dayString(now, 30);
+    const intensity = num(latest.intensity);
     const recent = dailyRows.filter(row => row.day >= cutoff && num(row.intensity) !== null);
     const monthAverage = recent.length
         ? Math.round(recent.reduce((sum, row) => sum + num(row.intensity) * (num(row.hours) || 1), 0)
@@ -120,13 +163,17 @@ export function summarise(latestRows, dailyRows, now) {
         : null;
     return {
         time: latestTime,
-        intensity: num(latest.intensity),
+        intensity,
         isActual: latest.is_actual !== false,
-        change: dayBefore ? num(latest.intensity) - num(dayBefore.intensity) : null,
+        band: band(intensity, latest.intensity_index),
+        change: dayBefore ? intensity - num(dayBefore.intensity) : null,
         windSolar: share('wind', 'solar'),
         gas: share('gas'),
         lowCarbon: share('wind', 'solar', 'nuclear', 'biomass'),
+        imports: share('imports'),
         monthAverage,
+        // Percent above (+) or below (−) the 30-day average.
+        vsAverage: monthAverage && intensity !== null ? ((intensity - monthAverage) / monthAverage) * 100 : null,
         ageHours: (now - latestTime) / 3600000,
     };
 }
@@ -139,8 +186,9 @@ export function intensityForecast(forecastRows) {
         .sort((a, b) => a.time - b.time);
 }
 
-// Latest ETL and forecast runs, for the pipeline card.
-export function pipelineStatus(runs, now) {
+// Latest ETL and forecast runs, for the pipeline card. Data collection is judged by freshness() (the same
+// rule as the banner) when the latest reading's time is given.
+export function pipelineStatus(runs, now, latestReading = undefined) {
     const latestOf = job => runs
         .filter(run => run.job === job)
         .sort((a, b) => new Date(b.run_timestamp) - new Date(a.run_timestamp))[0] || null;
@@ -152,8 +200,28 @@ export function pipelineStatus(runs, now) {
         if (run.status === 'partial') return { state: 'warning', label: 'Last run finished with warnings', run };
         return { state: 'good', label: 'Running normally', run };
     };
-    // GitHub runs scheduled jobs late or skips them; each run covers 24 hours, so allow some slack.
-    return { etl: describe(latestOf('etl'), 12), forecast: describe(latestOf('forecast'), 12) };
+    const etlRun = latestOf('etl');
+    let etl;
+    if (latestReading === undefined) {
+        etl = describe(etlRun, 12);
+    } else {
+        const fresh = freshness(latestReading, etlRun, now);
+        etl = { state: { fresh: 'good', delayed: 'warning', failed: 'critical' }[fresh.state], label: fresh.label, run: etlRun, freshness: fresh };
+    }
+    // The forecast runs every three hours; GitHub runs scheduled jobs late or skips them, so allow some slack.
+    return { etl, forecast: describe(latestOf('forecast'), 12) };
+}
+
+// One plain sentence for the intensity forecast's skill, e.g. "The model's forecasts are about 21% closer
+// than just repeating yesterday's value."
+export function skillSummary(rows) {
+    const row = rows.find(r => r.metric === 'Overall_Intensity');
+    if (!row || row.skill === null) return '';
+    const pct = Math.round(Math.abs(row.skill) * 100);
+    if (pct < 3) return 'For carbon intensity, the model does about as well as repeating yesterday’s value.';
+    return row.skill > 0
+        ? `For carbon intensity, the model beats the simple forecast (repeating yesterday’s value) by about ${pct}%: its average error is ${pct}% smaller.`
+        : `For carbon intensity, the model does worse than the simple forecast (repeating yesterday’s value): its average error is about ${pct}% larger.`;
 }
 
 export function skillRows(rows) {

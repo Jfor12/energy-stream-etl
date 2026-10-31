@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createClient, summarise, toSeries, intensityForecast, pipelineStatus, skillRows, niceTicks, dayString, mixAverages, FUELS,
+    band, freshness, skillSummary,
 } from '../data.js';
 
 const hour = t => new Date(Date.UTC(2026, 8, 25, t)).toISOString();
@@ -114,4 +115,48 @@ test('mix averages: shares over the period add up to 100, days weighted by their
 test('the stack keeps wind and gas on its edges', () => {
     assert.equal(FUELS[0].key, 'wind');
     assert.equal(FUELS[FUELS.length - 1].key, 'gas');
+});
+
+test('the rating is the API\'s own index, or its 2026 bands when a row has none', () => {
+    assert.equal(band(197, 'high').label, 'High');
+    assert.equal(band(197, 'High').fromApi, true);
+    assert.deepEqual([20, 60, 150, 200, 260].map(v => band(v).key), ['very low', 'low', 'moderate', 'high', 'very high']);
+    assert.equal(band(89).key, 'low');
+    assert.equal(band(90).key, 'moderate');
+    assert.equal(band(null), null);
+});
+
+test('one freshness rule: fresh, delayed, failed', () => {
+    const now = new Date(Date.UTC(2026, 9, 31, 11, 30));
+    const at = h => new Date(now - h * 3600000);
+    const ok = { job: 'etl', status: 'success', run_timestamp: at(5).toISOString() };
+    assert.equal(freshness(at(1), ok, now).state, 'fresh');
+    const late = freshness(at(5.5), ok, now);
+    assert.equal(late.state, 'delayed');
+    assert.match(late.message, /5 hours old/);
+    assert.equal(freshness(at(13), ok, now).state, 'failed');
+    assert.equal(freshness(at(1), { ...ok, status: 'failure' }, now).state, 'failed');
+    // The Pipeline card uses the same rule, so it can't say "Running normally" while the banner says delayed.
+    const card = pipelineStatus([ok], now, at(5.5)).etl;
+    assert.equal(card.state, 'warning');
+    assert.equal(card.label, 'Delayed');
+    assert.equal(pipelineStatus([ok], now, at(0.5)).etl.label, 'Up to date');
+});
+
+test('the headline compares with the 30-day average, and gives the rating', () => {
+    const now = new Date(Date.UTC(2026, 8, 25, 12, 20));
+    const summary = summarise([row(12, 197, { intensity_index: 'high' })], [{ day: '2026-09-20', intensity: 113, hours: 24 }], now);
+    assert.equal(Math.round(summary.vsAverage), 74);
+    assert.equal(summary.band.label, 'High');
+});
+
+test('the forecast summary says in words how the model compares with the simple forecast', () => {
+    assert.match(skillSummary([{ metric: 'Overall_Intensity', skill: 0.21 }]), /beats .* by about 21%/);
+    assert.match(skillSummary([{ metric: 'Overall_Intensity', skill: -0.1 }]), /worse .* about 10% larger/);
+    assert.equal(skillSummary([]), '');
+});
+
+test('coal is its own fuel and the stack runs low carbon, imports, then fossil fuels', () => {
+    assert.deepEqual(FUELS.map(f => f.key), ['wind', 'solar', 'nuclear', 'biomass', 'other', 'imports', 'coal', 'gas']);
+    assert.equal(FUELS.find(f => f.key === 'other').label, 'Hydro and other');
 });

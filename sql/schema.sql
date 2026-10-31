@@ -26,6 +26,8 @@ ALTER TABLE grid_telemetry
     ADD COLUMN IF NOT EXISTS intensity_is_actual BOOLEAN,
     -- How many of the hour's two half-hourly readings the row is built from.
     ADD COLUMN IF NOT EXISTS half_hours SMALLINT,
+    -- The API's own verdict on the hour: very low, low, moderate, high or very high.
+    ADD COLUMN IF NOT EXISTS intensity_index VARCHAR(10),
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 
 CREATE UNIQUE INDEX IF NOT EXISTS grid_telemetry_timestamp_key ON grid_telemetry (timestamp);

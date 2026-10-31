@@ -25,10 +25,13 @@ SELECT
     fuel_solar_perc AS solar,
     fuel_imports_perc AS imports,
     fuel_biomass_perc AS biomass,
-    -- hydro, coal and "other" are small; the dashboard shows them together
-    CASE WHEN COALESCE(fuel_hydro_perc, fuel_coal_perc, fuel_other_perc) IS NOT NULL
-         THEN COALESCE(fuel_hydro_perc, 0) + COALESCE(fuel_coal_perc, 0) + COALESCE(fuel_other_perc, 0)
-    END AS other
+    -- hydro and "other" are small; the dashboard shows them together. Coal has its own column (31 Oct 2026;
+    -- it used to be counted in here). New columns go at the end: a view can gain columns, not reorder them.
+    CASE WHEN COALESCE(fuel_hydro_perc, fuel_other_perc) IS NOT NULL
+         THEN COALESCE(fuel_hydro_perc, 0) + COALESCE(fuel_other_perc, 0)
+    END AS other,
+    fuel_coal_perc AS coal,
+    intensity_index
 FROM public.grid_telemetry
 WHERE EXTRACT(MINUTE FROM timestamp) = 0 AND overall_intensity IS NOT NULL;
 
@@ -45,9 +48,10 @@ SELECT
     ROUND(AVG(fuel_solar_perc)::numeric, 1) AS solar,
     ROUND(AVG(fuel_imports_perc)::numeric, 1) AS imports,
     ROUND(AVG(fuel_biomass_perc)::numeric, 1) AS biomass,
-    ROUND(AVG(COALESCE(fuel_hydro_perc, 0) + COALESCE(fuel_coal_perc, 0) + COALESCE(fuel_other_perc, 0))
-          FILTER (WHERE COALESCE(fuel_hydro_perc, fuel_coal_perc, fuel_other_perc) IS NOT NULL)::numeric, 1) AS other,
-    COUNT(*) AS hours
+    ROUND(AVG(COALESCE(fuel_hydro_perc, 0) + COALESCE(fuel_other_perc, 0))
+          FILTER (WHERE COALESCE(fuel_hydro_perc, fuel_other_perc) IS NOT NULL)::numeric, 1) AS other,
+    COUNT(*) AS hours,
+    ROUND(AVG(fuel_coal_perc)::numeric, 1) AS coal
 FROM public.grid_telemetry
 WHERE EXTRACT(MINUTE FROM timestamp) = 0 AND overall_intensity IS NOT NULL
 GROUP BY 1;

@@ -4,7 +4,7 @@
 
 import {
     FUELS, RANGES, createClient, isConfigured, dayString, toSeries, summarise,
-    intensityForecast, pipelineStatus, skillRows, mixAverages, num,
+    intensityForecast, pipelineStatus, skillRows, skillSummary, mixAverages, freshness, num,
 } from './data.js';
 import { lineChart, stackedArea, legend, tableView, formatTime } from './charts.js';
 
@@ -33,16 +33,25 @@ async function load() {
         ]);
         // The newest run of each job, even if the recent list is all one job.
         Object.assign(state, { hourly, daily, forecast, skill, pipeline, lastRuns: [...lastEtl, ...lastForecast], loadedAt: now });
-        setStatus('');
         render();
     } catch (error) {
-        setStatus(`${error.message} Showing the last data loaded.`);
+        setStatus(`${error.message} Showing the last data loaded.`, 'failed');
     } finally {
         for (const chart of document.querySelectorAll('.chart')) chart.classList.remove('is-loading');
     }
 }
 
-function setStatus(message) { $('#status').textContent = message; }
+function setStatus(message, kind = '') {
+    $('#status').textContent = message;
+    $('#status').className = `status${kind && message ? ` status--${kind}` : ''}`;
+}
+
+const latestReading = () => {
+    const times = state.hourly.map(row => new Date(row.timestamp).getTime());
+    return times.length ? new Date(Math.max(...times)) : null;
+};
+const lastEtlRun = () => [...state.lastRuns, ...state.pipeline].filter(run => run.job === 'etl')
+    .sort((a, b) => new Date(b.run_timestamp) - new Date(a.run_timestamp))[0] || null;
 
 // --- Rendering -----------------------------------------------------------------------
 
@@ -60,12 +69,18 @@ function timeAgo(date, now = new Date()) {
 function render() {
     for (const chart of charts) chart.destroy();
     charts = [];
+    // One rule for how fresh the data is: the banner and the Pipeline card both come from it.
+    const fresh = freshness(latestReading(), lastEtlRun(), new Date());
+    setStatus(fresh.state === 'fresh' ? '' : `${fresh.state === 'failed' ? 'Data collection has stopped.' : 'Data delayed.'} ${fresh.message}`, fresh.state);
     renderNow();
     renderIntensity();
     renderMix();
     renderAccuracy();
     renderPipeline();
 }
+
+const clockFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' });
+const ESTIMATE_NOTE = 'National Grid hasn’t published the measured value for this hour yet, so this is its own estimate. A later run replaces it with the measured value.';
 
 function renderNow() {
     const now = new Date();
@@ -75,7 +90,53 @@ function renderNow() {
         return;
     }
     $('#now-value').textContent = summary.intensity === null ? '–' : intFmt.format(summary.intensity);
-    $('#now-time').textContent = `${formatTime(summary.time)}${summary.isActual ? '' : ' (estimate)'}`;
+    // "Latest reading Sat 31 Oct, 06:00", with "(estimate)" explained on tap or hover.
+    const time = $('#now-time');
+    time.replaceChildren(`latest reading ${formatTime(summary.time)}`);
+    if (!summary.isActual) {
+        const tip = document.createElement('button');
+        tip.type = 'button';
+        tip.className = 'tip';
+        tip.textContent = 'estimate';
+        tip.title = ESTIMATE_NOTE;
+        tip.setAttribute('aria-expanded', 'false');
+        tip.setAttribute('aria-controls', 'estimate-note');
+        const note = document.createElement('span');
+        note.id = 'estimate-note';
+        note.className = 'tip__note';
+        note.hidden = true;
+        note.textContent = ESTIMATE_NOTE;
+        tip.addEventListener('click', () => {
+            const open = tip.getAttribute('aria-expanded') !== 'true';
+            tip.setAttribute('aria-expanded', String(open));
+            note.hidden = !open;
+        });
+        time.append(' (', tip, ')', note);
+    }
+
+    // The verdict: the API's own rating, in words and colour.
+    const verdict = $('#now-band');
+    verdict.hidden = !summary.band;
+    verdict.className = summary.band ? `verdict verdict--${summary.band.key.replace(' ', '-')}` : 'verdict';
+    verdict.replaceChildren();
+    if (summary.band) {
+        const label = document.createElement('span');
+        label.className = 'vh';
+        label.textContent = 'Rating: ';
+        verdict.append(label, summary.band.label);
+        verdict.title = summary.band.fromApi ? 'The Carbon Intensity API’s rating for this hour' : 'Rated with the Carbon Intensity API’s 2026 bands';
+    }
+
+    // Lead with the 30-day average; yesterday comes second.
+    $('#now-average').textContent = summary.monthAverage === null ? '–' : intFmt.format(summary.monthAverage);
+    const compare = $('#now-compare');
+    compare.replaceChildren();
+    if (summary.vsAverage !== null) {
+        const strong = document.createElement('strong');
+        const pctOff = Math.round(Math.abs(summary.vsAverage));
+        strong.textContent = pctOff < 3 ? 'About the same as' : `${pctOff}% ${summary.vsAverage > 0 ? 'above' : 'below'}`;
+        compare.append(strong, ' the 30-day average');
+    }
     const delta = $('#now-delta');
     delta.className = 'delta';
     delta.replaceChildren();
@@ -86,13 +147,16 @@ function renderNow() {
         delta.classList.add(summary.change > 0 ? 'delta--worse' : summary.change < 0 ? 'delta--better' : 'delta--same');
         delta.append(strong, ' than this time yesterday');
     }
+
+    // The mix now: wind and solar shown as part of low carbon.
+    $('#mixnow-title').textContent = `Generation mix at ${clockFmt.format(summary.time)}`;
     $('#tile-windsolar').textContent = pct(summary.windSolar);
     $('#tile-lowcarbon').textContent = pct(summary.lowCarbon);
     $('#tile-gas').textContent = pct(summary.gas);
-    $('#tile-average').textContent = summary.monthAverage === null ? '–' : intFmt.format(summary.monthAverage);
-    if (summary.ageHours > 3) {
-        setStatus(`The latest reading is ${Math.floor(summary.ageHours)} hours old. The collection job may be delayed; see Pipeline below.`);
-    }
+    const width = value => `${Math.max(0, Math.min(100, value ?? 0))}%`;
+    $('#bar-windsolar').style.width = width(summary.windSolar);
+    $('#bar-lowcarbon').style.width = width((summary.lowCarbon ?? 0) - (summary.windSolar ?? 0));
+    $('#bar-gas').style.width = width(summary.gas);
 }
 
 function rangeData() {
@@ -127,8 +191,14 @@ function renderIntensity() {
         return;
     }
 
-    // Hourly ranges: add the newest forecast for 24 hours and 7 days.
+    // Hourly ranges: add the newest forecast for 24 hours and 7 days. The time axis runs to the current time at
+    // least, so the gap since the latest reading shows, and both moments are marked.
     const withForecast = state.range === '24h' || state.range === '7d';
+    const now = new Date();
+    const latest = latestReading();
+    const markers = [];
+    if (latest) markers.push({ time: latest, label: `Latest reading ${clockFmt.format(latest)}`, side: 'left', kind: 'latest' });
+    if (latest && now - latest > 45 * 60000) markers.push({ time: now, label: `Now ${clockFmt.format(now)}`, side: 'right', kind: 'now' });
     const forecast = withForecast ? intensityForecast(state.forecast) : [];
     $('#intensity-sub').textContent = withForecast && forecast.length
         ? 'Grams of CO₂ per kilowatt-hour, hourly, with the next 24 hours forecast and the range it is 80% likely to fall in.'
@@ -144,7 +214,7 @@ function renderIntensity() {
     legend($('#intensity-legend'), legendLines, 'line');
     if (forecast.length) $('#intensity-legend').append(...legendItems([{ label: '80% range', color: '--band' }], 'band'));
     charts.push(lineChart(container, {
-        series: lines, bands, marker: forecast.length ? forecast[0].time : null, valueText: g,
+        series: lines, bands, markers, extendTo: now, valueText: g,
         ariaLabel: `Line chart of hourly carbon intensity over the last ${RANGES[state.range].label}${forecast.length ? ', with the next 24 hours forecast' : ''}`,
     }));
     const rows = measured.map(p => ({ time: p.time, value: p.value, kind: 'Recorded' }))
@@ -172,10 +242,10 @@ function renderMix() {
     const label = RANGES[state.range].label;
     const layers = FUELS.map(fuel => ({ ...fuel, color: `--fuel-${fuel.key}`, values: series.fuels[fuel.key] }));
     $('#mix-sub').textContent = daily
-        ? 'Daily average share of Great Britain’s generation by source.'
-        : 'Hourly share of Great Britain’s generation by source.';
+        ? 'Daily average share of Great Britain’s electricity supply by source.'
+        : 'Hourly share of Great Britain’s electricity supply by source.';
     $('#mix-summary-title').textContent = `Average, last ${label}`;
-    mixSummary($('#mix-legend'), mixAverages(series).reverse());  // top of the stack first, as drawn
+    mixSummary($('#mix-legend'), mixAverages(series).reverse());  // top of the stack first, as drawn (and in the tooltip and table)
     charts.push(stackedArea($('#mix-chart'), {
         times: series.times, layers, daily,
         ariaLabel: `Stacked area chart of the generation mix over the last ${label}`,
@@ -219,6 +289,7 @@ function renderAccuracy() {
     const container = $('#accuracy');
     container.replaceChildren();
     const rows = skillRows(state.skill);
+    $('#skill-summary').textContent = skillSummary(rows);
     if (!rows.length) {
         const p = document.createElement('p');
         p.className = 'note';
@@ -228,7 +299,8 @@ function renderAccuracy() {
     }
     const table = document.createElement('table');
     const head = table.createTHead().insertRow();
-    for (const [label, numeric] of [['Forecast', false], ['Checked', true], ['Model error', true], ['Yesterday’s value', true], ['Difference', true], ['In 80% range', true]]) {
+    const labels = [['Forecast', false], ['Checked', true], ['Model error', true], ['Yesterday’s value', true], ['Difference', true], ['In 80% range', true]];
+    for (const [label, numeric] of labels) {
         const th = document.createElement('th');
         th.scope = 'col';
         th.textContent = label;
@@ -248,6 +320,7 @@ function renderAccuracy() {
         ];
         cells.forEach(([text, numeric], i) => {
             const td = tr.insertCell();
+            td.dataset.label = labels[i][0];  // on phones each row is a card, each value labelled
             if (numeric) td.className = 'num';
             if (i === 4) {
                 if (row.skill === null) { td.textContent = '–'; return; }
@@ -270,7 +343,7 @@ function renderAccuracy() {
 
 function renderPipeline() {
     const now = new Date();
-    const status = pipelineStatus([...state.lastRuns, ...state.pipeline], now);
+    const status = pipelineStatus([...state.lastRuns, ...state.pipeline], now, latestReading());
     const icons = { good: '✓', warning: '!', critical: '×', unknown: '?' };
     const list = $('#health');
     list.replaceChildren();
@@ -285,10 +358,18 @@ function renderPipeline() {
         heading.textContent = `${title}: ${entry.label}`;
         const detail = document.createElement('p');
         detail.className = 'health__detail';
+        const parts = [];
+        if (entry.freshness) {
+            const latest = latestReading();
+            const age = entry.freshness.age;
+            const old = age === null ? '' : age < 1 ? `${Math.max(1, Math.round(age * 60))} minutes old` : `${Math.floor(age)} hour${Math.floor(age) === 1 ? '' : 's'} old`;
+            parts.push(latest ? `Latest reading ${clockFmt.format(latest)}, ${old}` : 'No readings yet');
+        }
         if (entry.run) {
             const changed = (num(entry.run.rows_inserted) || 0) + (num(entry.run.rows_updated) || 0);
-            detail.textContent = `Last run ${timeAgo(new Date(entry.run.run_timestamp), now)} · ${intFmt.format(changed)} ${title === 'Forecasting' ? 'forecasts stored' : 'hours added or updated'}`;
+            parts.push(`last run ${timeAgo(new Date(entry.run.run_timestamp), now)}, ${intFmt.format(changed)} ${title === 'Forecasting' ? 'forecasts stored' : 'hours added or updated'}`);
         }
+        detail.textContent = parts.join(' · ').replace(/^l/, 'L');
         li.append(icon, heading, detail);
         list.append(li);
     }
@@ -333,9 +414,11 @@ function setRange(range) {
 const themeButton = $('#theme-toggle');
 const isDark = () => document.documentElement.dataset.theme === 'dark'
     || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+// The button shows the theme on screen (sun or moon); pressed means dark mode is on.
 const syncTheme = () => {
-    themeButton.textContent = isDark() ? 'Light mode' : 'Dark mode';
-    themeButton.setAttribute('aria-pressed', String(isDark()));
+    const dark = isDark();
+    themeButton.setAttribute('aria-pressed', String(dark));
+    themeButton.title = dark ? 'Dark mode is on' : 'Dark mode is off';
 };
 themeButton.addEventListener('click', () => {
     const next = isDark() ? 'light' : 'dark';
