@@ -369,6 +369,7 @@ function renderPipeline() {
             const changed = (num(entry.run.rows_inserted) || 0) + (num(entry.run.rows_updated) || 0);
             parts.push(`last run ${timeAgo(new Date(entry.run.run_timestamp), now)}, ${intFmt.format(changed)} ${title === 'Forecasting' ? 'forecasts stored' : 'hours added or updated'}`);
         }
+        if (title === 'Forecasting') parts.push('scheduled every 3 hours, though GitHub often starts it late');
         detail.textContent = parts.join(' · ').replace(/^l/, 'L');
         li.append(icon, heading, detail);
         list.append(li);
@@ -402,7 +403,7 @@ function setRange(range) {
     for (const button of document.querySelectorAll('[data-range]')) {
         button.setAttribute('aria-pressed', String(button.dataset.range === range));
     }
-    try { localStorage.setItem('range', range); } catch {}
+    try { localStorage.setItem('grid:range', range); } catch {}
     if (state.loadedAt) {
         for (const chart of charts) chart.destroy();
         charts = [];
@@ -423,7 +424,7 @@ const syncTheme = () => {
 themeButton.addEventListener('click', () => {
     const next = isDark() ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
-    try { localStorage.setItem('theme', next); } catch {}
+    try { localStorage.setItem('grid:theme', next); } catch {}
     syncTheme();
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncTheme);
@@ -432,7 +433,8 @@ syncTheme();
 // --- Start ---------------------------------------------------------------------------
 
 let saved = null;
-try { saved = localStorage.getItem('range'); } catch {}
+// "grid:" keys, as every app on jfor12.github.io shares one storage area; the old key is read once as a fallback.
+try { saved = localStorage.getItem('grid:range') ?? localStorage.getItem('range'); } catch {}
 setRange(RANGES[saved] ? saved : '7d');
 
 if (!isConfigured(config)) {

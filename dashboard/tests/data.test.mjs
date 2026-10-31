@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createClient, summarise, toSeries, intensityForecast, pipelineStatus, skillRows, niceTicks, dayString, mixAverages, FUELS,
-    band, freshness, skillSummary,
+    band, freshness, skillSummary, forecastStatus,
 } from '../data.js';
 
 const hour = t => new Date(Date.UTC(2026, 8, 25, t)).toISOString();
@@ -159,4 +159,14 @@ test('the forecast summary says in words how the model compares with the simple 
 test('coal is its own fuel and the stack runs low carbon, imports, then fossil fuels', () => {
     assert.deepEqual(FUELS.map(f => f.key), ['wind', 'solar', 'nuclear', 'biomass', 'other', 'imports', 'coal', 'gas']);
     assert.equal(FUELS.find(f => f.key === 'other').label, 'Hydro and other');
+});
+
+test('the forecast, scheduled every 3 hours, is late after 4½ hours and failed after a day', () => {
+    const now = new Date(Date.UTC(2026, 9, 31, 12));
+    const run = (h, status = 'success') => ({ job: 'forecast', status, run_timestamp: new Date(now - h * 3600000).toISOString() });
+    assert.equal(forecastStatus(run(3), now).state, 'good');
+    assert.equal(forecastStatus(run(6), now).label, 'Late: no run for 6 hours');
+    assert.equal(forecastStatus(run(25), now).state, 'critical');
+    assert.equal(forecastStatus(run(1, 'failure'), now).state, 'critical');
+    assert.equal(forecastStatus(null, now).state, 'unknown');
 });
